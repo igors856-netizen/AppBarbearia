@@ -1,0 +1,6 @@
+{
+  "name": "BarberPro - Gestão e Agendamento de Barbearia",
+  "description": "Sistema completo para barbearias com agendamento online, WhatsApp automático, integração Google Calendar, recibos digitais, gestão financeira e banco de dados Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
