@@ -14,7 +14,7 @@ import { AdminLoginScreen } from './components/AdminLoginScreen';
 import { BarbershopSwitcherModal } from './components/BarbershopSwitcherModal';
 import { DigitalReceiptModal } from './components/DigitalReceiptModal';
 import { Receipt } from './types';
-import { Scissors, MapPin, Phone, ShieldCheck, Heart, Store, Lock } from 'lucide-react';
+import { Scissors, MapPin, Phone, ShieldCheck, Heart, Store, Lock, Bell, Sparkles } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const { activeView, profile, currentAdmin, isSuperUser, setActiveView } = useBarber();
@@ -45,7 +45,11 @@ const MainLayout: React.FC = () => {
         
         {activeView === 'dashboard' && (
           currentAdmin ? (
-            <BarberDashboard onOpenReceipt={(r) => setActiveReceipt(r)} />
+            <BarberDashboard 
+              onOpenReceipt={(r) => setActiveReceipt(r)} 
+              onOpenCustomizer={() => setIsCustomizerOpen(true)}
+              onOpenNotifications={() => setIsNotificationsOpen(true)}
+            />
           ) : (
             <div className="p-12 text-center bg-neutral-900 border border-neutral-800 rounded-3xl max-w-md mx-auto my-12 space-y-4">
               <Scissors className="w-12 h-12 mx-auto text-amber-400" />
@@ -149,20 +153,36 @@ const MainLayout: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => setActiveView('client')}
-              className="hover:text-amber-400 transition-colors"
-            >
-              Agendamento Clientes
-            </button>
-            <span>•</span>
-            <button
-              onClick={() => setIsCustomizerOpen(true)}
-              className="hover:text-amber-400 transition-colors"
-            >
-              Personalizar Loja
-            </button>
-            <span>•</span>
+            {currentAdmin ? (
+              <>
+                <button
+                  onClick={() => setIsCustomizerOpen(true)}
+                  className="hover:text-amber-400 transition-colors flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Personalizar Loja</span>
+                </button>
+                <span>•</span>
+                <button
+                  onClick={() => setIsNotificationsOpen(true)}
+                  className="hover:text-amber-400 transition-colors flex items-center gap-1"
+                >
+                  <Bell className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Notificações</span>
+                </button>
+                <span>•</span>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setActiveView('client')}
+                  className="hover:text-amber-400 transition-colors"
+                >
+                  Agendamento Clientes
+                </button>
+                <span>•</span>
+              </>
+            )}
             <button
               onClick={() => setIsSupabaseOpen(true)}
               className="hover:text-emerald-400 transition-colors"
@@ -173,16 +193,20 @@ const MainLayout: React.FC = () => {
         </div>
       </footer>
 
-      {/* Modals and Slide-overs */}
-      <NotificationCenter
-        isOpen={isNotificationsOpen}
-        onClose={() => setIsNotificationsOpen(false)}
-      />
+      {/* Modals and Slide-overs - Somente para Administrador quando autenticado */}
+      {currentAdmin && (
+        <>
+          <NotificationCenter
+            isOpen={isNotificationsOpen}
+            onClose={() => setIsNotificationsOpen(false)}
+          />
 
-      <ShopCustomizerModal
-        isOpen={isCustomizerOpen}
-        onClose={() => setIsCustomizerOpen(false)}
-      />
+          <ShopCustomizerModal
+            isOpen={isCustomizerOpen}
+            onClose={() => setIsCustomizerOpen(false)}
+          />
+        </>
+      )}
 
       <SupabaseConfigModal
         isOpen={isSupabaseOpen}

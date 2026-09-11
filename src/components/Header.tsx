@@ -3,10 +3,10 @@ import {
   Calendar, 
   DollarSign, 
   Scissors, 
-  Bell, 
+  Bell,
+  Sparkles,
   Copy, 
   Check, 
-  Sparkles,
   ShieldCheck,
   Lock,
   LogOut,
@@ -39,11 +39,11 @@ export const Header: React.FC<HeaderProps> = ({
     barbershops,
     activeView, 
     setActiveView, 
-    notifications,
     currentAdmin,
     isSuperUser,
     logoutAdmin,
-    supabaseConfig
+    supabaseConfig,
+    notifications
   } = useBarber();
 
   const [copiedLink, setCopiedLink] = useState(false);
@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
     ...(isSuperUser ? [
       { id: 'app_barbearia' as ActiveView, label: 'AppBarbearia', icon: <Store className="w-4 h-4 text-amber-400" />, superUserOnly: true }
     ] : []),
-    { id: 'dashboard', label: 'Painel & Agenda', icon: <Scissors className="w-4 h-4" />, requiresAdmin: true },
+    { id: 'dashboard', label: 'Painel de Agendamento', icon: <Scissors className="w-4 h-4" />, requiresAdmin: true },
     { id: 'finance', label: 'Financeiro & Recibos', icon: <DollarSign className="w-4 h-4" />, requiresAdmin: true },
     { 
       id: 'services', 
@@ -175,28 +175,32 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* Notifications */}
-            <button
-              onClick={onOpenNotifications}
-              title="Central de Notificações"
-              className="relative p-2.5 text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-xl border border-neutral-700 transition-all"
-            >
-              <Bell className="w-4 h-4" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-neutral-950 text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse shadow-md">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
+            {/* Admin Exclusive Actions: Notifications & Customize Shop */}
+            {currentAdmin && (
+              <>
+                <button
+                  onClick={onOpenNotifications}
+                  title="Central de Notificações da Barbearia"
+                  className="relative p-2.5 text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-xl border border-neutral-700 transition-all"
+                >
+                  <Bell className="w-4 h-4 text-amber-400" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-neutral-950 text-[10px] font-extrabold rounded-full flex items-center justify-center animate-pulse shadow-md">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </button>
 
-            {/* Customizer */}
-            <button
-              onClick={onOpenCustomizer}
-              title="Personalizar Barbearia"
-              className="p-2.5 text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-xl border border-neutral-700 transition-all"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-            </button>
+                <button
+                  onClick={onOpenCustomizer}
+                  title="Personalizar Barbearia"
+                  className="p-2.5 text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-xl border border-neutral-700 transition-all hidden sm:flex items-center gap-1.5 text-xs font-semibold"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span className="hidden md:inline">Personalizar</span>
+                </button>
+              </>
+            )}
 
             {/* Admin User / Login button */}
             {currentAdmin ? (
@@ -286,6 +290,35 @@ export const Header: React.FC<HeaderProps> = ({
                         <span>Trocar Filial / Criar</span>
                       </button>
                     )}
+
+                    <button
+                      onClick={() => {
+                        onOpenCustomizer();
+                        setAdminMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Personalizar Barbearia</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        onOpenNotifications();
+                        setAdminMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Central de Notificações</span>
+                      </div>
+                      {unreadCount > 0 && (
+                        <span className="px-1.5 py-0.5 bg-amber-500 text-neutral-950 text-[10px] font-bold rounded-full">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </button>
 
                     <button
                       onClick={() => {

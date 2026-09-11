@@ -17,7 +17,9 @@ import {
   ChevronRight, 
   FileText,
   AlertCircle,
-  Share2
+  Share2,
+  Bell,
+  Sparkles
 } from 'lucide-react';
 import { useBarber } from '../context/BarberContext';
 import { Appointment, AppointmentStatus, PaymentMethod, Receipt } from '../types';
@@ -32,9 +34,15 @@ import { createGoogleCalendarUrl, downloadIcsFile } from '../utils/calendar';
 
 interface BarberDashboardProps {
   onOpenReceipt: (receipt: Receipt) => void;
+  onOpenCustomizer?: () => void;
+  onOpenNotifications?: () => void;
 }
 
-export const BarberDashboard: React.FC<BarberDashboardProps> = ({ onOpenReceipt }) => {
+export const BarberDashboard: React.FC<BarberDashboardProps> = ({ 
+  onOpenReceipt,
+  onOpenCustomizer,
+  onOpenNotifications
+}) => {
   const { 
     profile, 
     barbers, 
@@ -45,8 +53,11 @@ export const BarberDashboard: React.FC<BarberDashboardProps> = ({ onOpenReceipt 
     cancelAppointment, 
     addAppointment,
     currentAdmin,
-    receipts
+    receipts,
+    notifications
   } = useBarber();
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   // Date selection (default today)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -231,6 +242,35 @@ export const BarberDashboard: React.FC<BarberDashboardProps> = ({ onOpenReceipt 
                 ))}
               </select>
             </div>
+
+            {onOpenNotifications && (
+              <button
+                type="button"
+                onClick={onOpenNotifications}
+                title="Central de Notificações"
+                className="relative flex items-center gap-1.5 px-3.5 py-2.5 bg-neutral-950 hover:bg-neutral-800 text-neutral-300 hover:text-white rounded-xl border border-neutral-800 hover:border-neutral-700 transition-all text-xs font-semibold"
+              >
+                <Bell className="w-4 h-4 text-amber-400" />
+                <span className="hidden sm:inline">Notificações</span>
+                {unreadCount > 0 && (
+                  <span className="w-5 h-5 bg-amber-500 text-neutral-950 text-[10px] font-extrabold rounded-full flex items-center justify-center animate-pulse">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {onOpenCustomizer && (
+              <button
+                type="button"
+                onClick={onOpenCustomizer}
+                title="Personalizar Barbearia"
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-neutral-950 hover:bg-neutral-800 text-neutral-300 hover:text-white rounded-xl border border-neutral-800 hover:border-neutral-700 transition-all text-xs font-semibold"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span className="hidden sm:inline">Personalizar</span>
+              </button>
+            )}
 
             <button
               onClick={() => setShowManualModal(true)}

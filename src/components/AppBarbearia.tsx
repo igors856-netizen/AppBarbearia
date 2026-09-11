@@ -64,7 +64,7 @@ export const AppBarbearia: React.FC = () => {
   // Calculate global statistics
   const totalRevenue = appointments
     .filter(a => a.status === 'completed')
-    .reduce((sum, a) => sum + (a.totalPrice || 0), 0);
+    .reduce((sum, a) => sum + (a.servicePrice || 0), 0);
 
   const completedAppointmentsCount = appointments.filter(a => a.status === 'completed').length;
 
