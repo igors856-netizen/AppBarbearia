@@ -13,14 +13,20 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_URL = 'https://mchwtlupmwpkluhclgya.supabase.co';
-const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jaHd0bHVwbXdwa2x1aGNsZ3lhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODM2Mzg4NiwiZXhwIjoyMTAzOTM5ODg2fQ.YlesVh2ByD9JbSxNTOQsSKwa-IrqxqPJv2EAy8of1_E';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jaHd0bHVwbXdwa2x1aGNsZ3lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNjM4ODYsImV4cCI6MjEwMzkzOTg4Nn0.tbEbWkYaMpHMVNEFqN5ChKClmTJrdZMzjRQ69hlP6as';
 
 export const getSupabaseConfig = (): SupabaseConfig => {
   const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || DEFAULT_URL;
   const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || DEFAULT_KEY;
   
-  const savedUrl = localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || envUrl;
-  const savedKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_KEY) || envKey;
+  let savedUrl = localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || envUrl;
+  let savedKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_KEY) || envKey;
+
+  // Se a chave salva no localStorage for a service_role antiga inválida, atualiza para a nova chave anon válida
+  if (savedKey && savedKey.includes('service_role')) {
+    savedKey = DEFAULT_KEY;
+    localStorage.setItem(STORAGE_KEYS.SUPABASE_KEY, DEFAULT_KEY);
+  }
 
   const isConfigured = Boolean(savedUrl && savedKey && savedUrl.startsWith('http'));
 
