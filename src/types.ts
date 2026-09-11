@@ -1,18 +1,20 @@
-export type ActiveView = 'client' | 'dashboard' | 'finance' | 'services' | 'admins';
+export type ActiveView = 'client' | 'dashboard' | 'finance' | 'services' | 'admins' | 'app_barbearia';
 
 export interface AdminUser {
   id: string;
   name: string;
   username: string;
   password: string;
-  role: 'admin' | 'manager';
+  role: 'superuser' | 'admin' | 'manager';
   barberId?: string; // ID of the barber profile tied to this admin's personal schedule
+  shopId?: string; // ID of the barbershop owned or assigned to this admin
   createdAt: string;
   lastLogin?: string;
 }
 
 export interface BarberShopProfile {
   id: string;
+  adminId?: string; // Admin owner/creator
   name: string;
   slogan: string;
   logoUrl: string;
@@ -34,6 +36,7 @@ export interface BarberShopProfile {
 
 export interface Service {
   id: string;
+  shopId?: string;
   name: string;
   description: string;
   durationMinutes: number;
@@ -44,6 +47,8 @@ export interface Service {
 
 export interface Barber {
   id: string;
+  shopId?: string; // Associated barbershop
+  adminId?: string; // Admin owner who created this barber
   name: string;
   specialty: string;
   photoUrl: string;
@@ -58,6 +63,7 @@ export type PaymentMethod = 'pix' | 'card_credit' | 'card_debit' | 'cash';
 
 export interface Appointment {
   id: string;
+  shopId?: string; // Associated barbershop
   customerName: string;
   customerPhone: string;
   customerEmail?: string;

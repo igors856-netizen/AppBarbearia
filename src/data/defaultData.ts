@@ -1,12 +1,58 @@
 import { BarberShopProfile, Barber, Service, Appointment, Receipt, AdminUser } from '../types';
 
+export const DEFAULT_SHOPS: BarberShopProfile[] = [
+  {
+    id: 'profile_default',
+    adminId: 'adm_igor',
+    name: 'Barbearia Don Corleone',
+    slogan: 'Tradição, Estilo e Precisão desde 2018',
+    logoUrl: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=240&auto=format&fit=crop&q=80',
+    coverUrl: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1200&auto=format&fit=crop&q=80',
+    primaryColor: '#f59e0b', // Amber
+    accentColor: '#d97706',
+    phoneWhatsApp: '5511987654321',
+    address: 'Rua Augusta, 1420 - Consolação, São Paulo - SP',
+    openingTime: '09:00',
+    closingTime: '20:00',
+    lunchBreakEnabled: true,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    slotIntervalMinutes: 30,
+    daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
+    pixKey: 'contato@barbeariadon.com.br',
+    pixKeyType: 'email'
+  },
+  {
+    id: 'shop_igor2',
+    adminId: 'adm_igor2',
+    name: 'Barbearia Don Silveira',
+    slogan: 'Estilo Moderno & Visagismo com Igor Jr.',
+    logoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=240&auto=format&fit=crop&q=80',
+    coverUrl: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=1200&auto=format&fit=crop&q=80',
+    primaryColor: '#f59e0b',
+    accentColor: '#d97706',
+    phoneWhatsApp: '5511987654322',
+    address: 'Av. Paulista, 2100 - Bela Vista, São Paulo - SP',
+    openingTime: '09:00',
+    closingTime: '20:00',
+    lunchBreakEnabled: true,
+    lunchStart: '12:00',
+    lunchEnd: '13:00',
+    slotIntervalMinutes: 30,
+    daysOpen: [1, 2, 3, 4, 5, 6],
+    pixKey: 'igor2@barbeariadon.com.br',
+    pixKeyType: 'email'
+  }
+];
+
 export const DEFAULT_ADMINS: AdminUser[] = [
   {
     id: 'adm_superuser',
     name: 'Superusuário',
     username: 'superuser',
     password: '123',
-    role: 'admin',
+    role: 'superuser',
+    shopId: 'profile_default',
     createdAt: '2026-01-01T00:00:00.000Z',
     lastLogin: '2026-09-10T10:00:00.000Z'
   },
@@ -17,6 +63,7 @@ export const DEFAULT_ADMINS: AdminUser[] = [
     password: '123456',
     role: 'admin',
     barberId: 'barber_igor',
+    shopId: 'profile_default',
     createdAt: '2026-01-10T10:00:00.000Z',
     lastLogin: '2026-09-10T09:00:00.000Z'
   },
@@ -27,31 +74,13 @@ export const DEFAULT_ADMINS: AdminUser[] = [
     password: '123456789',
     role: 'admin',
     barberId: 'barber_igor2',
+    shopId: 'shop_igor2',
     createdAt: '2026-01-15T14:30:00.000Z',
     lastLogin: '2026-09-09T18:20:00.000Z'
   }
 ];
 
-export const DEFAULT_PROFILE: BarberShopProfile = {
-  id: 'profile_default',
-  name: 'Barbearia Don Corleone',
-  slogan: 'Tradição, Estilo e Precisão desde 2018',
-  logoUrl: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=240&auto=format&fit=crop&q=80',
-  coverUrl: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=1200&auto=format&fit=crop&q=80',
-  primaryColor: '#f59e0b', // Amber
-  accentColor: '#d97706',
-  phoneWhatsApp: '5511987654321',
-  address: 'Rua Augusta, 1420 - Consolação, São Paulo - SP',
-  openingTime: '09:00',
-  closingTime: '20:00',
-  lunchBreakEnabled: true,
-  lunchStart: '12:00',
-  lunchEnd: '13:00',
-  slotIntervalMinutes: 30,
-  daysOpen: [1, 2, 3, 4, 5, 6], // Mon-Sat
-  pixKey: 'contato@barbeariadon.com.br',
-  pixKeyType: 'email'
-};
+export const DEFAULT_PROFILE: BarberShopProfile = DEFAULT_SHOPS[0];
 
 export const DEFAULT_SERVICES: Service[] = [
   {
@@ -104,6 +133,8 @@ export const DEFAULT_SERVICES: Service[] = [
 export const DEFAULT_BARBERS: Barber[] = [
   {
     id: 'barber_igor',
+    shopId: 'profile_default',
+    adminId: 'adm_igor',
     name: 'Igor Silveira',
     specialty: 'Master Barber • Visagismo, Degradê & Tesoura',
     photoUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80',
@@ -113,6 +144,8 @@ export const DEFAULT_BARBERS: Barber[] = [
   },
   {
     id: 'barber_igor2',
+    shopId: 'shop_igor2',
+    adminId: 'adm_igor2',
     name: 'Igor Segundo',
     specialty: 'Fade Navalhado, Freestyle & Barboterapia',
     photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&auto=format&fit=crop&q=80',
@@ -122,6 +155,8 @@ export const DEFAULT_BARBERS: Barber[] = [
   },
   {
     id: 'barber_1',
+    shopId: 'profile_default',
+    adminId: 'adm_igor',
     name: 'Lucas "Navalha de Ouro"',
     specialty: 'Especialista em Degradê, Freestyle e Tesoura Clássica',
     photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
@@ -131,6 +166,8 @@ export const DEFAULT_BARBERS: Barber[] = [
   },
   {
     id: 'barber_2',
+    shopId: 'profile_default',
+    adminId: 'adm_igor',
     name: 'Matheus Silva',
     specialty: 'Mestre em Barboterapia e Barba Rústica',
     photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
@@ -140,6 +177,8 @@ export const DEFAULT_BARBERS: Barber[] = [
   },
   {
     id: 'barber_3',
+    shopId: 'profile_default',
+    adminId: 'adm_igor',
     name: 'Rafael Costa',
     specialty: 'Cortes Vintage, Pompadour & Pigmentação',
     photoUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=300&auto=format&fit=crop&q=80',
@@ -161,7 +200,7 @@ const getRelativeDateStr = (offsetDays: number): string => {
   return d.toISOString().split('T')[0];
 };
 
-export const DEFAULT_APPOINTMENTS: Appointment[] = [
+const RAW_APPOINTMENTS: Appointment[] = [
   // Igor Silveira's Schedule
   {
     id: 'apt_igor_1',
@@ -454,6 +493,11 @@ export const DEFAULT_APPOINTMENTS: Appointment[] = [
     receiptId: 'rcpt_5'
   }
 ];
+
+export const DEFAULT_APPOINTMENTS: Appointment[] = RAW_APPOINTMENTS.map(apt => ({
+  ...apt,
+  shopId: apt.shopId || (apt.barberId === 'barber_igor2' ? 'shop_igor2' : 'profile_default')
+}));
 
 export const DEFAULT_RECEIPTS: Receipt[] = [
   {

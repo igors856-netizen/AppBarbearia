@@ -2,17 +2,17 @@ import React, { useState } from 'react';
 import { 
   X, 
   Database, 
-  Check, 
-  Copy, 
+  CheckCircle2, 
+  AlertCircle, 
   RefreshCw, 
-  ShieldCheck, 
-  AlertTriangle, 
-  ExternalLink,
-  Code,
-  CheckCircle2
+  ExternalLink, 
+  Copy, 
+  Check, 
+  ShieldAlert,
+  Code
 } from 'lucide-react';
 import { useBarber } from '../context/BarberContext';
-import { SUPABASE_SQL_SCHEMA, testSupabaseConnection } from '../services/supabase';
+import { SUPABASE_SQL_SCHEMA } from '../services/supabase';
 
 interface SupabaseConfigModalProps {
   isOpen: boolean;
@@ -24,206 +24,172 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
 
   const [url, setUrl] = useState(supabaseConfig.url || '');
   const [anonKey, setAnonKey] = useState(supabaseConfig.anonKey || '');
-  const [testing, setTesting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
-  const [showSqlTab, setShowSqlTab] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleTestAndSave = async (e: React.FormEvent) => {
+  const handleSaveAndSync = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTesting(true);
     setStatusMessage(null);
+    setIsSyncing(true);
 
-    const testResult = await testSupabaseConnection(url.trim(), anonKey.trim());
-    if (testResult.success) {
-      await updateSupabaseConfig(url.trim(), anonKey.trim());
-      setStatusMessage({ type: 'success', text: testResult.message });
-    } else {
-      setStatusMessage({ type: 'error', text: testResult.message });
-    }
-    setTesting(false);
-  };
-
-  const handleManualSync = async () => {
-    setSyncing(true);
-    setStatusMessage(null);
-    const result = await syncWithSupabase();
-    setStatusMessage({
-      type: result.success ? 'success' : 'error',
-      text: result.message
+    updateSupabaseConfig({
+      url: url.trim(),
+      anonKey: anonKey.trim()
     });
-    setSyncing(false);
+
+    try {
+      const res = await syncWithSupabase();
+      if (res.success) {
+        setStatusMessage({ text: 'Conexão e sincronização realizadas com sucesso!', isError: false });
+      } else {
+        setStatusMessage({ text: res.message, isError: true });
+      }
+    } catch (err: any) {
+      setStatusMessage({ text: err.message || 'Falha ao conectar ao Supabase', isError: true });
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleCopySql = () => {
-    navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+  const sqlSchema = SUPABASE_SQL_SCHEMA;
+
+  const copySql = () => {
+    navigator.clipboard.writeText(sqlSchema);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-neutral-900 border border-neutral-800 rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden my-auto animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-neutral-950">
-          <div className="flex items-center gap-2.5 text-emerald-400">
-            <Database className="w-5 h-5" />
-            <h3 className="font-extrabold text-white text-base">Banco de Dados Supabase</h3>
-            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-              supabaseConfig.connected
-                ? 'bg-emerald-950 text-emerald-400 border-emerald-800/60'
-                : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-            }`}>
-              {supabaseConfig.connected ? 'Ativo & Sincronizado' : 'Modo Offline / Local'}
-            </span>
+        <div className="flex items-center justify-between p-5 sm:p-6 border-b border-neutral-800 bg-neutral-900/50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-white tracking-tight">Banco de Dados Supabase</h3>
+                {supabaseConfig.connected ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Conectado
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-400 border border-neutral-700">
+                    Não conectado
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-neutral-400">
+                Sincronize agendamentos em tempo real na nuvem com seu próprio projeto Supabase
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800"
+            className="p-2 text-neutral-400 hover:text-white rounded-xl hover:bg-neutral-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+        {/* Form Body */}
+        <div className="p-5 sm:p-6 overflow-y-auto space-y-5">
           
-          {/* Status Message */}
           {statusMessage && (
-            <div className={`p-4 rounded-2xl border text-xs font-medium flex items-center gap-3 ${
-              statusMessage.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
-                : statusMessage.type === 'error'
-                ? 'bg-rose-950/60 border-rose-800 text-rose-300'
-                : 'bg-neutral-950 border-neutral-800 text-neutral-300'
+            <div className={`p-4 rounded-2xl flex items-center gap-3 text-xs ${
+              statusMessage.isError
+                ? 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
             }`}>
-              {statusMessage.type === 'success' ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              {statusMessage.isError ? (
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-400" />
               ) : (
-                <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400" />
               )}
               <span>{statusMessage.text}</span>
             </div>
           )}
 
-          {/* Explanation Info */}
-          <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 text-xs text-neutral-300 space-y-1.5">
-            <p className="font-bold text-white flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              Armazenamento Seguro em Nuvem com Supabase (PostgreSQL)
-            </p>
-            <p className="text-neutral-400 leading-relaxed">
-              O aplicativo salva tudo de forma instantânea localmente e sincroniza em tempo real com seu banco de dados Supabase na nuvem. Agendamentos, recibos digitais e catálogo ficam persistidos com total segurança.
-            </p>
-          </div>
-
-          {/* Credentials Form */}
-          <form onSubmit={handleTestAndSave} className="space-y-4">
+          <form onSubmit={handleSaveAndSync} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-neutral-300 mb-1">
-                Project URL do Supabase (VITE_SUPABASE_URL)
+              <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+                Supabase Project URL
               </label>
               <input
-                type="text"
-                placeholder="https://seuprojeto.supabase.co"
+                type="url"
+                placeholder="https://xyzcompany.supabase.co"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                required
+                className="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-amber-500 transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-neutral-300 mb-1">
-                Anon Public Key do Supabase (VITE_SUPABASE_ANON_KEY)
+              <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+                Supabase Anon / Public API Key
               </label>
               <input
                 type="password"
                 placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 value={anonKey}
                 onChange={(e) => setAnonKey(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                required
+                className="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-amber-500 transition-colors"
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 pt-2">
+            <div className="flex items-center justify-between pt-2">
+              <a
+                href="https://supabase.com/dashboard"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium transition-colors"
+              >
+                <span>Criar projeto no Supabase</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+
               <button
                 type="submit"
-                disabled={testing || !url || !anonKey}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 disabled:opacity-50 transition-all"
+                disabled={isSyncing}
+                className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 disabled:opacity-50 transition-all"
               >
-                {testing ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Conectando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Database className="w-3.5 h-3.5" />
-                    <span>Salvar & Testar Conexão</span>
-                  </>
-                )}
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Conectando...' : 'Salvar e Sincronizar'}</span>
               </button>
-
-              {supabaseConfig.connected && (
-                <button
-                  type="button"
-                  disabled={syncing}
-                  onClick={handleManualSync}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs border border-neutral-700 transition-colors"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${syncing ? 'animate-spin' : ''}`} />
-                  <span>Sincronizar Agora</span>
-                </button>
-              )}
-
-              {supabaseConfig.lastSync && (
-                <span className="text-[11px] text-neutral-500 ml-auto self-center">
-                  Última sincronização: {supabaseConfig.lastSync}
-                </span>
-              )}
             </div>
           </form>
 
-          {/* SQL Script Generator */}
+          {/* SQL Setup Helper */}
           <div className="pt-4 border-t border-neutral-800 space-y-3">
             <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Code className="w-4 h-4 text-amber-400" />
-                  <span>Script SQL de Criação das Tabelas no Supabase</span>
-                </h4>
-                <p className="text-[11px] text-neutral-400 mt-0.5">
-                  Copie e execute no "SQL Editor" do painel Supabase para criar as 5 tabelas em 1 clique.
-                </p>
+              <div className="flex items-center gap-2">
+                <Code className="w-4 h-4 text-neutral-400" />
+                <h4 className="text-xs font-bold text-neutral-200">Script SQL para Criar a Tabela</h4>
               </div>
-
               <button
-                type="button"
-                onClick={handleCopySql}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-amber-400 text-xs font-bold border border-neutral-700 transition-colors"
+                onClick={copySql}
+                className="flex items-center gap-1 text-xs text-neutral-400 hover:text-white transition-colors"
               >
-                {copiedSql ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400">Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copiar SQL</span>
-                  </>
-                )}
+                {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedSql ? 'Copiado!' : 'Copiar SQL'}</span>
               </button>
             </div>
 
-            <div className="relative">
-              <pre className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 text-[11px] text-neutral-300 font-mono overflow-x-auto max-h-48 scrollbar-thin">
-                {SUPABASE_SQL_SCHEMA}
-              </pre>
-            </div>
+            <pre className="p-3.5 bg-neutral-950 border border-neutral-800 rounded-xl text-[11px] text-neutral-400 font-mono overflow-x-auto max-h-40 leading-relaxed">
+              {sqlSchema}
+            </pre>
+            <p className="text-[11px] text-neutral-500 leading-normal">
+              Cole este código no <strong>SQL Editor</strong> do seu painel Supabase para criar a tabela necessária e habilitar as permissões de gravação.
+            </p>
           </div>
 
         </div>

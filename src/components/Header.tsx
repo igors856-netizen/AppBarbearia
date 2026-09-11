@@ -7,334 +7,350 @@ import {
   Copy, 
   Check, 
   Sparkles,
-  UserCheck,
   ShieldCheck,
   Lock,
   LogOut,
-  User
+  User,
+  Users,
+  Store,
+  ExternalLink,
+  ChevronDown
 } from 'lucide-react';
 import { useBarber } from '../context/BarberContext';
+import { ActiveView } from '../types';
 
 interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenCustomizer: () => void;
+  onOpenSupabaseModal: () => void;
+  onOpenAdminLogin: () => void;
+  onOpenShopSwitcher: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ 
-  onOpenNotifications, 
-  onOpenCustomizer 
+export const Header: React.FC<HeaderProps> = ({
+  onOpenNotifications,
+  onOpenCustomizer,
+  onOpenSupabaseModal,
+  onOpenAdminLogin,
+  onOpenShopSwitcher
 }) => {
   const { 
     profile, 
+    barbershops,
     activeView, 
     setActiveView, 
-    notifications, 
-    currentAdmin, 
-    currentAdminBarber,
-    logoutAdmin 
+    notifications,
+    currentAdmin,
+    isSuperUser,
+    logoutAdmin,
+    supabaseConfig
   } = useBarber();
+
   const [copiedLink, setCopiedLink] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const handleCopyClientLink = () => {
-    const url = window.location.origin + window.location.pathname + '#agendar';
-    navigator.clipboard.writeText(url);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
+  const handleCopyBookingLink = () => {
+    const url = window.location.origin;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    });
   };
 
+  const navItems: { id: ActiveView; label: string; icon: React.ReactNode; requiresAdmin?: boolean; superUserOnly?: boolean }[] = [
+    { id: 'client', label: 'Agendar Horário', icon: <Calendar className="w-4 h-4" /> },
+    ...(isSuperUser ? [
+      { id: 'app_barbearia' as ActiveView, label: 'AppBarbearia', icon: <Store className="w-4 h-4 text-amber-400" />, superUserOnly: true }
+    ] : []),
+    { id: 'dashboard', label: 'Painel & Agenda', icon: <Scissors className="w-4 h-4" />, requiresAdmin: true },
+    { id: 'finance', label: 'Financeiro & Recibos', icon: <DollarSign className="w-4 h-4" />, requiresAdmin: true },
+    { 
+      id: 'services', 
+      label: isSuperUser ? 'Serviços & Barbeiros' : 'Barbeiros', 
+      icon: <Sparkles className="w-4 h-4" />, 
+      requiresAdmin: true 
+    },
+    ...(isSuperUser ? [
+      { id: 'admins' as ActiveView, label: 'Gestão de Admins', icon: <Users className="w-4 h-4" />, superUserOnly: true }
+    ] : [])
+  ];
+
   return (
-    <header className="sticky top-0 z-40 bg-neutral-900/90 backdrop-blur-md border-b border-neutral-800 transition-colors">
+    <header className="sticky top-0 z-40 bg-neutral-900/95 backdrop-blur-md border-b border-neutral-800 transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 sm:h-20 gap-4">
+        <div className="flex items-center justify-between h-20 gap-4">
           
-          {/* Brand & Logo */}
-          <div 
-            className="flex items-center gap-3 cursor-pointer group select-none min-w-0"
-            onClick={() => setActiveView(currentAdmin ? 'dashboard' : 'client')}
-          >
-            <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden border-2 border-amber-500/40 shadow-lg shadow-amber-500/10 flex-shrink-0 bg-neutral-800">
-              <img 
-                src={profile.logoUrl} 
-                alt={profile.name}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              />
-              <div 
-                className="absolute inset-0 opacity-20"
-                style={{ backgroundColor: profile.primaryColor }}
-              />
-            </div>
-            
-            <div className="truncate">
-              <div className="flex items-center gap-2">
-                <h1 className="font-extrabold text-base sm:text-lg text-neutral-100 tracking-tight truncate group-hover:text-amber-400 transition-colors">
-                  {profile.name}
-                </h1>
-                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  PRO
-                </span>
+          {/* Logo & Shop Details */}
+          <div className="flex items-center gap-3.5 min-w-0">
+            <button
+              onClick={isSuperUser ? onOpenShopSwitcher : undefined}
+              disabled={!isSuperUser}
+              title={isSuperUser ? "Superusuário: Alternar ou gerenciar filiais" : profile.name}
+              className={`flex items-center gap-3 text-left ${isSuperUser ? 'group hover:opacity-90 cursor-pointer' : 'cursor-default'}`}
+            >
+              <div className="relative w-11 h-11 rounded-2xl overflow-hidden border border-neutral-700 bg-neutral-800 flex-shrink-0 shadow-md">
+                <img 
+                  src={profile.logoUrl} 
+                  alt={profile.name} 
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+                <div 
+                  className="absolute inset-0 opacity-20"
+                  style={{ backgroundColor: profile.primaryColor }}
+                />
               </div>
-              <p className="text-xs text-neutral-400 truncate hidden md:block">
-                {profile.slogan || 'Sistema de Agendamento & Faturamento'}
-              </p>
-            </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h1 className="text-base sm:text-lg font-bold text-white tracking-tight truncate group-hover:text-amber-400 transition-colors">
+                    {profile.name}
+                  </h1>
+                  {isSuperUser && (
+                    <ChevronDown className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform flex-shrink-0" />
+                  )}
+                </div>
+                <p className="text-xs text-neutral-400 truncate hidden sm:block">
+                  {profile.slogan}
+                </p>
+              </div>
+            </button>
+
+            {/* Número de unidades visível SOMENTE para o superuser */}
+            {isSuperUser && (
+              <button
+                onClick={onOpenShopSwitcher}
+                title="Superusuário: Gerenciar filiais da rede"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-all shadow-sm"
+              >
+                <Store className="w-3 h-3 text-amber-400" />
+                <span>{barbershops.length} {barbershops.length === 1 ? 'unidade' : 'unidades'}</span>
+              </button>
+            )}
           </div>
 
-          {/* Navigation tabs */}
-          <nav className="hidden lg:flex items-center gap-1 bg-neutral-950/60 p-1 rounded-xl border border-neutral-800/80">
-            {currentAdmin ? (
-              <>
+          {/* Navigation Bar (Desktop) */}
+          <nav className="hidden lg:flex items-center gap-1 bg-neutral-950/60 p-1.5 rounded-2xl border border-neutral-800">
+            {navItems.map((item) => {
+              if (item.requiresAdmin && !currentAdmin) return null;
+              if (item.superUserOnly && !isSuperUser) return null;
+              const isActive = activeView === item.id;
+              return (
                 <button
-                  onClick={() => setActiveView('dashboard')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                    activeView === 'dashboard'
-                      ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
+                  key={item.id}
+                  onClick={() => setActiveView(item.id)}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    isActive
+                      ? 'bg-amber-500 text-neutral-950 shadow-md shadow-amber-500/20 font-bold'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
                   }`}
                 >
-                  <Calendar className="w-4 h-4 text-amber-400" />
-                  <span>Agenda & Atendimentos</span>
+                  {item.icon}
+                  <span>{item.label}</span>
                 </button>
-
-                <button
-                  onClick={() => setActiveView('client')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                    activeView === 'client'
-                      ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Portal do Cliente</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveView('finance')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                    activeView === 'finance'
-                      ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
-                  }`}
-                >
-                  <DollarSign className="w-4 h-4 text-amber-400" />
-                  <span>Faturamento & Recibos</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveView('services')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                    activeView === 'services'
-                      ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
-                  }`}
-                >
-                  <Scissors className="w-4 h-4 text-neutral-300" />
-                  <span>Serviços & Barbeiros</span>
-                </button>
-
-                {currentAdmin?.username === 'superuser' && (
-                  <button
-                    onClick={() => setActiveView('admins')}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-                      activeView === 'admins'
-                        ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                        : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
-                    }`}
-                  >
-                    <ShieldCheck className="w-4 h-4 text-amber-400" />
-                    <span>Administradores</span>
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setActiveView('client')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-                    activeView === 'client'
-                      ? 'bg-neutral-800 text-white shadow-sm border border-neutral-700'
-                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Agendamento Online</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveView('dashboard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeView !== 'client'
-                      ? 'bg-amber-500 text-neutral-950 shadow-sm'
-                      : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/30'
-                  }`}
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Acesso do Administrador</span>
-                </button>
-              </>
-            )}
+              );
+            })}
           </nav>
 
-          {/* Quick Actions Right */}
-          <div className="flex items-center gap-2">
-            {/* Share / Copy Client Booking Link */}
+          {/* Actions & Admin controls */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Share booking link */}
             <button
-              onClick={handleCopyClientLink}
-              title="Copiar link de agendamento online para enviar ao cliente"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl bg-neutral-800/90 text-neutral-200 hover:bg-neutral-700 border border-neutral-700 transition-colors shadow-sm"
+              onClick={handleCopyBookingLink}
+              title="Copiar link de agendamento online"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-neutral-800/80 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl border border-neutral-700 transition-all active:scale-95"
             >
               {copiedLink ? (
                 <>
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-400 font-semibold">Link Copiado!</span>
+                  <span className="text-emerald-400">Link Copiado!</span>
                 </>
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="hidden sm:inline">Link de Agendamento</span>
+                  <span>Link Clientes</span>
                 </>
               )}
             </button>
 
-            {/* Admin User Badge & Logout */}
-            {currentAdmin ? (
-              <div className="flex items-center gap-1.5 bg-neutral-950/80 border border-neutral-800 rounded-xl px-2.5 py-1 text-xs">
-                <div className="flex items-center gap-1.5 text-neutral-300">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="font-bold text-amber-400 font-mono text-[11px] hidden sm:inline">
-                    @{currentAdmin.username}
-                  </span>
-                  {currentAdminBarber && (
-                    <span className="text-[10px] text-neutral-400 hidden md:inline font-medium">
-                      • {currentAdminBarber.name.split(' ')[0]}
-                    </span>
-                  )}
-                  <span className="text-[10px] text-neutral-500 hidden sm:inline">
-                    (ADM)
-                  </span>
-                </div>
-                <div className="h-3 w-px bg-neutral-800 mx-0.5" />
-                <button
-                  onClick={logoutAdmin}
-                  title="Sair da conta de administrador"
-                  className="p-1 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 transition-colors"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setActiveView('dashboard')}
-                className="lg:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500 text-neutral-950 font-bold text-xs shadow-sm"
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>Entrar ADM</span>
-              </button>
-            )}
-
-            {/* Theme & Shop Customizer (available to admin or shop owner) */}
-            <button
-              onClick={onOpenCustomizer}
-              title="Personalizar cores, logo e dados da barbearia"
-              className="p-2 rounded-xl text-neutral-300 bg-neutral-800/80 hover:bg-neutral-700 border border-neutral-700 transition-colors"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-            </button>
-
-            {/* Notification Bell */}
+            {/* Notifications */}
             <button
               onClick={onOpenNotifications}
-              className="relative p-2 rounded-xl text-neutral-300 bg-neutral-800/80 hover:bg-neutral-700 border border-neutral-700 transition-colors"
-              title="Notificações em tempo real"
+              title="Central de Notificações"
+              className="relative p-2.5 text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-xl border border-neutral-700 transition-all"
             >
-              <Bell className="w-4 h-4 text-neutral-200" />
+              <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center shadow-lg shadow-rose-500/40 animate-pulse">
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-neutral-950 text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse shadow-md">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </button>
+
+            {/* Customizer */}
+            <button
+              onClick={onOpenCustomizer}
+              title="Personalizar Barbearia"
+              className="p-2.5 text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-700 rounded-xl border border-neutral-700 transition-all"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+            </button>
+
+            {/* Admin User / Login button */}
+            {currentAdmin ? (
+              <div className="relative">
+                <button
+                  onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                  className="flex items-center gap-2 pl-2 pr-3 py-1.5 bg-neutral-800 border border-neutral-700 rounded-xl hover:border-neutral-600 transition-all"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs border border-amber-500/30">
+                    {currentAdmin.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="text-left hidden sm:block">
+                    <p className="text-xs font-bold text-white leading-none truncate max-w-[100px]">
+                      {currentAdmin.name}
+                    </p>
+                    <p className="text-[10px] text-amber-400 capitalize leading-none mt-0.5">
+                      @{currentAdmin.username}
+                    </p>
+                  </div>
+                  <ChevronDown className="w-3 h-3 text-neutral-400" />
+                </button>
+
+                {/* Dropdown Menu */}
+                {adminMenuOpen && (
+                  <div 
+                    className="absolute right-0 mt-2 w-56 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150"
+                    onMouseLeave={() => setAdminMenuOpen(false)}
+                  >
+                    <div className="px-3 py-2 border-b border-neutral-800 mb-1">
+                      <p className="text-xs font-bold text-white">{currentAdmin.name}</p>
+                      <p className="text-[11px] text-neutral-400">@{currentAdmin.username}</p>
+                      <span className={`inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold rounded ${
+                        isSuperUser 
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'bg-neutral-800 text-neutral-300 border border-neutral-700'
+                      }`}>
+                        {isSuperUser ? 'Superusuário' : (currentAdmin.role === 'admin' ? 'Administrador' : 'Gerente')}
+                      </span>
+                    </div>
+
+                    {isSuperUser && (
+                      <button
+                        onClick={() => {
+                          setActiveView('app_barbearia');
+                          setAdminMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-400 hover:bg-amber-500/10 rounded-xl transition-colors"
+                      >
+                        <Store className="w-3.5 h-3.5 text-amber-400" />
+                        <span>AppBarbearia (Central)</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setActiveView('dashboard');
+                        setAdminMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
+                    >
+                      <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Minha Agenda</span>
+                    </button>
+
+                    {isSuperUser && (
+                      <button
+                        onClick={() => {
+                          setActiveView('admins');
+                          setAdminMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
+                      >
+                        <Users className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Gestão de Admins</span>
+                      </button>
+                    )}
+
+                    {isSuperUser && (
+                      <button
+                        onClick={() => {
+                          onOpenShopSwitcher();
+                          setAdminMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
+                      >
+                        <Store className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Trocar Filial / Criar</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        onOpenSupabaseModal();
+                        setAdminMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Nuvem Supabase</span>
+                    </button>
+
+                    <div className="border-t border-neutral-800 my-1 pt-1">
+                      <button
+                        onClick={() => {
+                          logoutAdmin();
+                          setAdminMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Sair do Painel</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={onOpenAdminLogin}
+                className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl shadow-md shadow-amber-500/10 transition-all active:scale-95"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Entrar (Adm)</span>
+              </button>
+            )}
+
           </div>
+
         </div>
 
-        {/* Mobile secondary navigation */}
-        <div className="flex lg:hidden overflow-x-auto py-2 gap-1.5 border-t border-neutral-800/60 scrollbar-none text-xs">
-          {currentAdmin ? (
-            <>
+        {/* Mobile Navigation Row */}
+        <div className="lg:hidden flex items-center gap-1 overflow-x-auto py-2.5 border-t border-neutral-800 scrollbar-none">
+          {navItems.map((item) => {
+            if (item.requiresAdmin && !currentAdmin) return null;
+            if (item.superUserOnly && !isSuperUser) return null;
+            const isActive = activeView === item.id;
+            return (
               <button
-                onClick={() => setActiveView('dashboard')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors ${
-                  activeView === 'dashboard' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-400'
+                key={item.id}
+                onClick={() => setActiveView(item.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-amber-500 text-neutral-950 font-bold shadow-sm'
+                    : 'text-neutral-400 hover:text-white bg-neutral-950/40 border border-neutral-800/80'
                 }`}
               >
-                Agenda
+                {item.icon}
+                <span>{item.label}</span>
               </button>
-              <button
-                onClick={() => setActiveView('client')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors ${
-                  activeView === 'client' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-400'
-                }`}
-              >
-                Portal Cliente
-              </button>
-              <button
-                onClick={() => setActiveView('finance')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors ${
-                  activeView === 'finance' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-400'
-                }`}
-              >
-                Faturamento
-              </button>
-              <button
-                onClick={() => setActiveView('services')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors ${
-                  activeView === 'services' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-400'
-                }`}
-              >
-                Serviços
-              </button>
-              {currentAdmin?.username === 'superuser' && (
-                <button
-                  onClick={() => setActiveView('admins')}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors ${
-                    activeView === 'admins' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-400'
-                  }`}
-                >
-                  Administradores
-                </button>
-              )}
-              <button
-                onClick={logoutAdmin}
-                className="px-3 py-1.5 rounded-lg whitespace-nowrap font-medium text-rose-400 hover:bg-rose-950/30"
-              >
-                Sair
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setActiveView('client')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors ${
-                  activeView === 'client' ? 'bg-neutral-800 text-white font-bold' : 'text-neutral-400'
-                }`}
-              >
-                Portal do Cliente
-              </button>
-              <button
-                onClick={() => setActiveView('dashboard')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-bold transition-colors ${
-                  activeView !== 'client' ? 'bg-amber-500 text-neutral-950' : 'text-amber-400'
-                }`}
-              >
-                Entrar como Administrador
-              </button>
-            </>
-          )}
+            );
+          })}
         </div>
+
       </div>
     </header>
   );
 };
-

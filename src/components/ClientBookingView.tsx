@@ -4,811 +4,892 @@ import {
   Clock, 
   Scissors, 
   User, 
-  Phone, 
-  CheckCircle2, 
-  MessageSquare, 
+  Check, 
+  ChevronRight, 
+  Smartphone, 
+  Sparkles, 
   MapPin, 
-  CalendarPlus, 
+  Share2, 
   Download, 
+  QrCode, 
+  Search, 
   AlertCircle,
-  Share2,
-  ChevronRight,
-  ArrowLeft,
   XCircle,
-  Sparkles,
-  Info
+  CreditCard,
+  Banknote,
+  ShieldCheck,
+  CheckCircle2,
+  Phone
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
 import { useBarber } from '../context/BarberContext';
-import { Service, Barber, Appointment } from '../types';
+import { Service, Barber, Appointment, PaymentMethod } from '../types';
 import { 
+  openWhatsApp, 
+  getBookingConfirmationMessage, 
   formatCurrency, 
   formatDateBR, 
-  openWhatsApp, 
-  getBookingConfirmationMessage,
-  getCancellationMessage
+  getCancellationMessage 
 } from '../utils/whatsapp';
 import { createGoogleCalendarUrl, downloadIcsFile } from '../utils/calendar';
 
 export const ClientBookingView: React.FC = () => {
-  const { profile, services, barbers, appointments, addAppointment, cancelAppointment } = useBarber();
+  const { 
+    profile, 
+    services, 
+    barbers, 
+    appointments, 
+    addAppointment, 
+    cancelAppointment, 
+    getAvailableSlots 
+  } = useBarber();
 
-  const [activeTab, setActiveTab] = useState<'book' | 'my_bookings'>('book');
-
-  // Booking form state
+  // Active step
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
+    const today = new Date();
+    return today.toISOString().split('T')[0];
   });
   const [selectedTime, setSelectedTime] = useState<string>('');
   
+  // Client details
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
 
-  // Confirmation result
-  const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null);
+  // Booking Result Modal / State
+  const [createdAppointment, setCreatedAppointment] = useState<Appointment | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Phone lookup for existing bookings
-  const [searchPhone, setSearchPhone] = useState('');
-  const [searchedAppointments, setSearchedAppointments] = useState<Appointment[] | null>(null);
-  const [cancelModalAppointment, setCancelModalAppointment] = useState<Appointment | null>(null);
-  const [cancelReason, setCancelReason] = useState('');
+  // Search existing appointment state
+  const [lookupPhone, setLookupPhone] = useState('');
+  const [lookupResults, setLookupResults] = useState<Appointment[] | null>(null);
+  const [showLookupModal, setShowLookupModal] = useState(false);
+  const [cancelReasonInput, setCancelReasonInput] = useState('');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  // Available dates for the next 14 days
-  const availableDates = useMemo(() => {
-    const dates = [];
-    const today = new Date();
-    for (let i = 0; i < 14; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      const dayOfWeek = d.getDay();
-      // Check if open on this day
-      if (profile.daysOpen.includes(dayOfWeek)) {
-        const iso = d.toISOString().split('T')[0];
-        const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' });
-        const dayNumber = d.getDate();
-        const monthName = d.toLocaleDateString('pt-BR', { month: 'short' });
-        dates.push({ iso, dayName, dayNumber, monthName });
-      }
-    }
-    return dates;
-  }, [profile.daysOpen]);
+  // Filter active barbers for this shop
+  const activeBarbers = useMemo(() => {
+    return barbers.filter(b => b.active);
+  }, [barbers]);
 
-  // Generate slots for the selected date and barber
-  const timeSlots = useMemo(() => {
-    const [startH, startM] = profile.openingTime.split(':').map(Number);
-    const [endH, endM] = profile.closingTime.split(':').map(Number);
-    const interval = profile.slotIntervalMinutes || 30;
+  // Available slots for selected barber and date
+  const availableSlots = useMemo(() => {
+    if (!selectedBarber || !selectedDate) return [];
+    return getAvailableSlots(selectedBarber.id, selectedDate);
+  }, [selectedBarber, selectedDate, getAvailableSlots]);
 
-    const slots: string[] = [];
-    let current = startH * 60 + startM;
-    const end = endH * 60 + endM;
-
-    while (current + interval <= end) {
-      const h = Math.floor(current / 60);
-      const m = current % 60;
-      slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-      current += interval;
-    }
-
-    // Filter already booked slots and lunch break for this date and barber
-    return slots.map(slot => {
-      const isLunch = Boolean(
-        profile.lunchBreakEnabled && 
-        profile.lunchStart && 
-        profile.lunchEnd && 
-        slot >= profile.lunchStart && 
-        slot < profile.lunchEnd
-      );
-
-      const isBooked = appointments.some(apt => {
-        if (apt.date !== selectedDate || apt.status === 'cancelled') return false;
-        if (apt.time !== slot) return false;
-        if (selectedBarber && apt.barberId !== selectedBarber.id) return false;
-        return true;
-      });
-
-      return {
-        time: slot,
-        available: !isBooked && !isLunch,
-        isLunch
-      };
-    });
-  }, [profile.openingTime, profile.closingTime, profile.slotIntervalMinutes, profile.lunchBreakEnabled, profile.lunchStart, profile.lunchEnd, appointments, selectedDate, selectedBarber]);
-
-  // Handle client appointment submission
-  const handleBookAppointment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedService || !selectedTime || !customerName.trim() || !customerPhone.trim()) {
-      alert('Por favor, preencha todos os campos obrigatórios (Serviço, Horário, Nome e WhatsApp).');
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    const chosenBarber = selectedBarber || barbers[0];
-
-    const newApt = addAppointment({
-      customerName: customerName.trim(),
-      customerPhone: customerPhone.trim(),
-      customerEmail: customerEmail.trim() || undefined,
-      barberId: chosenBarber.id,
-      barberName: chosenBarber.name,
-      serviceId: selectedService.id,
-      serviceName: selectedService.name,
-      servicePrice: selectedService.price,
-      date: selectedDate,
-      time: selectedTime,
-      notes: notes.trim() || undefined
-    });
-
-    setConfirmedAppointment(newApt);
-    setIsSubmitting(false);
-
-    // Trigger celebration confetti
-    try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-    } catch {
-      // Ignored if confetti fails
-    }
-  };
-
-  const handleSendWhatsAppNotification = (apt: Appointment) => {
-    const calendarUrl = createGoogleCalendarUrl(apt, profile);
-    const message = getBookingConfirmationMessage(apt, profile, calendarUrl);
-    openWhatsApp(apt.customerPhone, message);
-  };
-
-  const handleClientCancelConfirm = () => {
-    if (!cancelModalAppointment) return;
-    cancelAppointment(cancelModalAppointment.id, cancelReason || 'Cancelamento solicitado pelo cliente via portal', 'client');
-    
-    // Auto trigger WhatsApp cancellation message to the barber shop
-    const cancelMsg = getCancellationMessage(cancelModalAppointment, profile, cancelReason, 'client');
-    openWhatsApp(profile.phoneWhatsApp, cancelMsg);
-
-    setCancelModalAppointment(null);
-    setCancelReason('');
-
-    // Update searched appointments list
-    if (searchedAppointments) {
-      setSearchedAppointments(prev => 
-        prev ? prev.map(a => a.id === cancelModalAppointment.id ? { ...a, status: 'cancelled' } : a) : null
-      );
-    }
-  };
-
-  const handleSearchBookings = (e: React.FormEvent) => {
-    e.preventDefault();
-    const digits = searchPhone.replace(/\D/g, '');
-    if (!digits) return;
-    const results = appointments.filter(a => a.customerPhone.replace(/\D/g, '').includes(digits));
-    setSearchedAppointments(results);
-  };
+  // Categories list
+  const categories = [
+    { id: 'all', label: 'Todos os Serviços' },
+    { id: 'cabelo', label: 'Cabelo' },
+    { id: 'barba', label: 'Barba' },
+    { id: 'combo', label: 'Combos' },
+    { id: 'estetica', label: 'Tratamentos' },
+  ];
 
   const filteredServices = useMemo(() => {
     if (selectedCategory === 'all') return services;
     return services.filter(s => s.category === selectedCategory);
   }, [services, selectedCategory]);
 
+  const handleBook = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedService || !selectedBarber || !selectedDate || !selectedTime) {
+      alert('Por favor, preencha todos os passos do agendamento.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const apt = addAppointment({
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerEmail: customerEmail.trim() || undefined,
+      barberId: selectedBarber.id,
+      barberName: selectedBarber.name,
+      serviceId: selectedService.id,
+      serviceName: selectedService.name,
+      servicePrice: selectedService.price,
+      date: selectedDate,
+      time: selectedTime,
+      notes: notes.trim() || undefined,
+      paymentMethod,
+      paymentStatus: 'pending'
+    });
+
+    setCreatedAppointment(apt);
+    setIsSubmitting(false);
+
+    // Reset selection
+    setSelectedTime('');
+  };
+
+  const handleSendWhatsAppNotification = (apt: Appointment) => {
+    const calUrl = createGoogleCalendarUrl(apt, profile);
+    const msg = getBookingConfirmationMessage(apt, profile, calUrl);
+    // Open whatsapp directed to barbershop or client
+    openWhatsApp(profile.phoneWhatsApp, msg);
+  };
+
+  const handleLookupSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanDigits = lookupPhone.replace(/\D/g, '');
+    if (!cleanDigits) return;
+
+    const results = appointments.filter(a => {
+      const aDigits = a.customerPhone.replace(/\D/g, '');
+      return aDigits.includes(cleanDigits) || cleanDigits.includes(aDigits);
+    });
+
+    setLookupResults(results);
+  };
+
+  const handleConfirmCancellation = (apt: Appointment) => {
+    cancelAppointment(apt.id, cancelReasonInput || 'Cancelado pelo cliente pelo portal online', 'client');
+    
+    // Send cancellation message via WhatsApp
+    const msg = getCancellationMessage(apt, profile, cancelReasonInput, 'client');
+    openWhatsApp(profile.phoneWhatsApp, msg);
+
+    setCancellingId(null);
+    setCancelReasonInput('');
+    // refresh search list
+    if (lookupResults) {
+      setLookupResults(prev => prev ? prev.map(p => p.id === apt.id ? { ...p, status: 'cancelled' } : p) : null);
+    }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <div className="space-y-8 pb-16">
       
-      {/* Banner & Barber shop Presentation Header */}
-      <div className="relative rounded-3xl overflow-hidden mb-8 border border-neutral-800 bg-neutral-900 shadow-2xl">
-        <div className="h-44 sm:h-56 relative overflow-hidden bg-neutral-950">
+      {/* Hero Banner with Shop Identity */}
+      <section className="relative rounded-3xl overflow-hidden border border-neutral-800 bg-neutral-900 shadow-2xl">
+        <div className="h-44 sm:h-56 w-full relative">
           <img 
             src={profile.coverUrl} 
-            alt={profile.name}
+            alt={profile.name} 
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover opacity-45"
+            className="w-full h-full object-cover brightness-[0.45]"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/60 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/50 to-transparent" />
         </div>
 
-        <div className="relative px-6 pb-6 pt-0 -mt-16 sm:-mt-20 flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4">
-          <div className="flex items-end gap-4 sm:gap-6">
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden border-4 border-neutral-950 shadow-xl bg-neutral-800 flex-shrink-0">
+        <div className="relative px-6 sm:px-8 pb-8 pt-4 -mt-16 sm:-mt-20 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-5">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl overflow-hidden border-2 border-amber-500/40 bg-neutral-900 shadow-2xl flex-shrink-0">
               <img 
                 src={profile.logoUrl} 
-                alt={profile.name}
+                alt={profile.name} 
                 referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover" 
               />
             </div>
-            <div className="mb-1">
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  Agendamento Online 24h
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Aberto Hoje
+                </span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-2 tracking-tight">
                 {profile.name}
               </h2>
-              <p className="text-sm text-neutral-400 mt-0.5">
+              <p className="text-xs sm:text-sm text-neutral-300 mt-1">
                 {profile.slogan}
               </p>
-              <div className="flex flex-wrap items-center gap-y-1 gap-x-4 mt-2 text-xs text-neutral-300">
-                <span className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-4 mt-2.5 text-xs text-neutral-400">
+                <span className="flex items-center gap-1.5">
                   <MapPin className="w-3.5 h-3.5 text-amber-400" />
                   {profile.address}
                 </span>
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  Seg-Sáb: {profile.openingTime} às {profile.closingTime}
+                  {profile.openingTime} às {profile.closingTime}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-stretch sm:self-auto">
+          <div className="flex items-center gap-2.5">
             <button
-              onClick={() => openWhatsApp(profile.phoneWhatsApp, `Olá! Vim pelo link de agendamento da ${profile.name} e gostaria de tirar uma dúvida.`)}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-lg shadow-emerald-600/20"
+              type="button"
+              onClick={() => setShowLookupModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-2xl border border-neutral-700 transition-all shadow-md"
             >
-              <MessageSquare className="w-4 h-4" />
-              <span>WhatsApp da Barbearia</span>
+              <Search className="w-4 h-4 text-amber-400" />
+              <span>Meus Agendamentos</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openWhatsApp(profile.phoneWhatsApp, `Olá! Gostaria de tirar uma dúvida sobre a ${profile.name}.`)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-2xl shadow-lg shadow-emerald-600/20 transition-all active:scale-95"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Falar no WhatsApp</span>
             </button>
           </div>
+
         </div>
+      </section>
 
-        {/* View Switcher Tabs (Novo Agendamento vs Meus Agendamentos) */}
-        <div className="flex border-t border-neutral-800/80 bg-neutral-950/40 px-6 py-2 gap-3">
-          <button
-            onClick={() => { setActiveTab('book'); setConfirmedAppointment(null); }}
-            className={`flex items-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'book'
-                ? 'bg-amber-500 text-neutral-950 shadow-md'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <CalendarPlus className="w-4 h-4" />
-            <span>Agendar Novo Horário</span>
-          </button>
+      {/* Main Booking Flow */}
+      <form onSubmit={handleBook} className="space-y-8">
 
-          <button
-            onClick={() => setActiveTab('my_bookings')}
-            className={`flex items-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'my_bookings'
-                ? 'bg-neutral-800 text-white border border-neutral-700'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <User className="w-4 h-4 text-amber-400" />
-            <span>Consultar / Cancelar Meus Horários</span>
-          </button>
-        </div>
-      </div>
-
-      {/* VIEW 1: BOOKING CONFIRMATION SCREEN */}
-      {confirmedAppointment && (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-2xl animate-fade-in">
-          <div className="text-center max-w-lg mx-auto mb-8">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/20">
-              <CheckCircle2 className="w-8 h-8" />
+        {/* Step 1: Services */}
+        <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-neutral-800">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">
+                  1
+                </span>
+                <h3 className="text-lg font-bold text-white tracking-tight">Escolha o Serviço Desejado</h3>
+              </div>
+              <p className="text-xs text-neutral-400 mt-1 pl-8">
+                Cortes modernos, barboterapia, químicas e tratamentos completos
+              </p>
             </div>
-            <h3 className="text-2xl font-black text-white">
-              Agendamento Confirmado com Sucesso!
-            </h3>
-            <p className="text-sm text-neutral-400 mt-2">
-              Seu horário foi reservado em tempo real no sistema da barbearia.
+
+            {/* Category filter pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {categories.map(c => (
+                <button
+                  type="button"
+                  key={c.id}
+                  onClick={() => setSelectedCategory(c.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                    selectedCategory === c.id
+                      ? 'bg-amber-500 text-neutral-950 shadow-md shadow-amber-500/20 font-bold'
+                      : 'bg-neutral-950 text-neutral-400 hover:text-white border border-neutral-800'
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-6">
+            {filteredServices.map(service => {
+              const isSelected = selectedService?.id === service.id;
+              return (
+                <div
+                  key={service.id}
+                  onClick={() => setSelectedService(service)}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                    isSelected
+                      ? 'bg-amber-500/10 border-amber-500 shadow-xl shadow-amber-500/10 scale-[1.01]'
+                      : 'bg-neutral-950/60 border-neutral-800/80 hover:border-neutral-700 hover:bg-neutral-950'
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-3">
+                    <div>
+                      <h4 className="text-sm font-bold text-white tracking-tight">{service.name}</h4>
+                      <p className="text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
+                        {service.description}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className="text-sm font-extrabold text-white block">
+                        {formatCurrency(service.price)}
+                      </span>
+                      <span className="text-[11px] text-neutral-400 flex items-center justify-end gap-1 mt-0.5">
+                        <Clock className="w-3 h-3 text-amber-400" />
+                        {service.durationMinutes} min
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-neutral-800/60 flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-amber-400/90 capitalize">
+                      {service.category}
+                    </span>
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition-all ${
+                      isSelected
+                        ? 'bg-amber-500 border-amber-500 text-neutral-950'
+                        : 'border-neutral-700 bg-neutral-900 text-transparent'
+                    }`}>
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Step 2: Barbers */}
+        <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+          <div className="pb-6 border-b border-neutral-800">
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">
+                2
+              </span>
+              <h3 className="text-lg font-bold text-white tracking-tight">Escolha o Profissional</h3>
+            </div>
+            <p className="text-xs text-neutral-400 mt-1 pl-8">
+              Nossa equipe de especialistas pronta para lhe atender com técnica e precisão
             </p>
           </div>
 
-          <div className="bg-neutral-950 rounded-2xl p-6 border border-neutral-800 max-w-xl mx-auto space-y-4">
-            <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
-              <div className="text-xs text-neutral-400">Barbearia</div>
-              <div className="font-bold text-white text-sm">{profile.name}</div>
-            </div>
-
-            <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
-              <div className="text-xs text-neutral-400">Serviço Escolhido</div>
-              <div className="font-bold text-amber-400 text-sm">{confirmedAppointment.serviceName}</div>
-            </div>
-
-            <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
-              <div className="text-xs text-neutral-400">Profissional / Barbeiro</div>
-              <div className="font-bold text-white text-sm">{confirmedAppointment.barberName}</div>
-            </div>
-
-            <div className="flex items-center justify-between pb-4 border-b border-neutral-800">
-              <div className="text-xs text-neutral-400">Data e Horário</div>
-              <div className="font-bold text-white text-sm">
-                {formatDateBR(confirmedAppointment.date)} às {confirmedAppointment.time}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-neutral-400">Valor Estimado</div>
-              <div className="font-extrabold text-emerald-400 text-base">
-                {formatCurrency(confirmedAppointment.servicePrice)}
-              </div>
-            </div>
-          </div>
-
-          {/* High Priority Actions for WhatsApp and Google Calendar */}
-          <div className="max-w-xl mx-auto mt-6 space-y-3">
-            {/* WhatsApp automated message dispatch */}
-            <button
-              onClick={() => handleSendWhatsAppNotification(confirmedAppointment)}
-              className="w-full flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-all shadow-lg shadow-emerald-600/30 group"
-            >
-              <MessageSquare className="w-5 h-5 group-hover:scale-110 transition-transform" />
-              <span>Receber Confirmação & Lembrete no WhatsApp</span>
-            </button>
-
-            {/* Google Calendar Direct Integration */}
-            <a
-              href={createGoogleCalendarUrl(confirmedAppointment, profile)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl bg-blue-600/90 hover:bg-blue-600 text-white font-bold text-sm transition-all shadow-lg shadow-blue-600/20"
-            >
-              <CalendarPlus className="w-5 h-5" />
-              <span>Adicionar ao Google Calendar</span>
-            </a>
-
-            {/* iCal Download */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => downloadIcsFile(confirmedAppointment, profile)}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium border border-neutral-700 transition-colors"
-              >
-                <Download className="w-4 h-4 text-neutral-400" />
-                <span>Baixar .iCal (Apple/Outlook)</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setConfirmedAppointment(null);
-                  setSelectedService(null);
-                  setSelectedTime('');
-                  setActiveTab('book');
-                }}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium border border-neutral-700 transition-colors"
-              >
-                <span>Fazer Outro Agendamento</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW 2: BOOKING WIZARD FORM */}
-      {!confirmedAppointment && activeTab === 'book' && (
-        <form onSubmit={handleBookAppointment} className="space-y-8">
-          
-          {/* STEP 1: CHOOSE SERVICE */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-neutral-800 gap-3">
-              <div>
-                <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">Etapa 1 de 4</span>
-                <h3 className="text-xl font-bold text-white mt-0.5">Escolha o Serviço</h3>
-              </div>
-
-              {/* Categories filter */}
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-                {['all', 'cabelo', 'barba', 'combo', 'estetica'].map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap capitalize transition-all ${
-                      selectedCategory === cat
-                        ? 'bg-amber-500 text-neutral-950 font-bold'
-                        : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200'
-                    }`}
-                  >
-                    {cat === 'all' ? 'Todos' : cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-              {filteredServices.map(srv => {
-                const isSelected = selectedService?.id === srv.id;
-                return (
-                  <div
-                    key={srv.id}
-                    onClick={() => setSelectedService(srv)}
-                    className={`cursor-pointer rounded-2xl p-4 sm:p-5 border transition-all flex items-start justify-between gap-4 ${
-                      isSelected
-                        ? 'bg-neutral-800/90 border-amber-500 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/50'
-                        : 'bg-neutral-950/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900/60'
-                    }`}
-                  >
-                    <div className="space-y-1.5 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-white text-sm sm:text-base">
-                          {srv.name}
-                        </h4>
-                        {isSelected && (
-                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                        )}
-                      </div>
-                      <p className="text-xs text-neutral-400 line-clamp-2">
-                        {srv.description}
-                      </p>
-                      <div className="flex items-center gap-3 pt-2 text-xs font-medium">
-                        <span className="flex items-center gap-1 text-neutral-400">
-                          <Clock className="w-3.5 h-3.5 text-neutral-500" />
-                          {srv.durationMinutes} min
-                        </span>
-                        <span className="text-emerald-400 font-bold text-sm">
-                          {formatCurrency(srv.price)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center flex-shrink-0 transition-colors ${
-                      isSelected ? 'border-amber-500 bg-amber-500 text-neutral-950' : 'border-neutral-700'
-                    }`}>
-                      {isSelected && <CheckCircle2 className="w-4 h-4" />}
-                    </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-6">
+            {activeBarbers.map(barber => {
+              const isSelected = selectedBarber?.id === barber.id;
+              return (
+                <div
+                  key={barber.id}
+                  onClick={() => {
+                    setSelectedBarber(barber);
+                    setSelectedTime(''); // Reset slot on barber switch
+                  }}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3.5 ${
+                    isSelected
+                      ? 'bg-amber-500/10 border-amber-500 shadow-xl shadow-amber-500/10 scale-[1.01]'
+                      : 'bg-neutral-950/60 border-neutral-800/80 hover:border-neutral-700 hover:bg-neutral-950'
+                  }`}
+                >
+                  <div className="w-14 h-14 rounded-2xl overflow-hidden border border-neutral-700 bg-neutral-800 flex-shrink-0 relative">
+                    <img 
+                      src={barber.photoUrl} 
+                      alt={barber.name} 
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover" 
+                    />
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* STEP 2: CHOOSE BARBER */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-            <div className="pb-4 border-b border-neutral-800">
-              <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">Etapa 2 de 4</span>
-              <h3 className="text-xl font-bold text-white mt-0.5">Escolha o Barbeiro</h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                Selecione o profissional de sua preferência ou qualquer um disponível.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-              {barbers.map(barber => {
-                const isSelected = selectedBarber?.id === barber.id;
-                return (
-                  <div
-                    key={barber.id}
-                    onClick={() => setSelectedBarber(barber)}
-                    className={`cursor-pointer rounded-2xl p-4 border text-center transition-all flex flex-col items-center ${
-                      isSelected
-                        ? 'bg-neutral-800/90 border-amber-500 shadow-md ring-1 ring-amber-500/50'
-                        : 'bg-neutral-950/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900/60'
-                    }`}
-                  >
-                    <div className="w-16 h-16 rounded-full overflow-hidden mb-3 border-2 border-amber-500/40 shadow-inner bg-neutral-800">
-                      <img 
-                        src={barber.photoUrl} 
-                        alt={barber.name}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <h4 className="font-bold text-white text-sm truncate max-w-full">
-                      {barber.name}
-                    </h4>
-                    <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                      {barber.specialty}
-                    </p>
-                    <span className={`mt-3 text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
-                      isSelected ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-800 text-neutral-400'
-                    }`}>
-                      {isSelected ? 'Selecionado' : 'Escolher'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* STEP 3: DATE & TIME */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-            <div className="pb-4 border-b border-neutral-800">
-              <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">Etapa 3 de 4</span>
-              <h3 className="text-xl font-bold text-white mt-0.5">Escolha Data e Horário</h3>
-            </div>
-
-            {/* Date Picker Carousel */}
-            <div className="mt-6">
-              <label className="block text-xs font-semibold text-neutral-400 mb-2">
-                1. Selecione a Data:
-              </label>
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-                {availableDates.map(item => {
-                  const isSelected = selectedDate === item.iso;
-                  return (
-                    <button
-                      key={item.iso}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDate(item.iso);
-                        setSelectedTime('');
-                      }}
-                      className={`flex flex-col items-center justify-center min-w-[70px] py-3 px-2 rounded-2xl border transition-all ${
-                        isSelected
-                          ? 'bg-amber-500 text-neutral-950 border-amber-400 font-bold shadow-md shadow-amber-500/20 scale-105'
-                          : 'bg-neutral-950 border-neutral-800 text-neutral-300 hover:border-neutral-700'
-                      }`}
-                    >
-                      <span className="text-[11px] uppercase tracking-wider">{item.dayName}</span>
-                      <span className="text-lg font-black">{item.dayNumber}</span>
-                      <span className="text-[10px] capitalize">{item.monthName}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Slots */}
-            <div className="mt-6">
-              <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
-                <label className="block text-xs font-semibold text-neutral-400">
-                  2. Selecione o Horário Disponível:
-                </label>
-                {profile.lunchBreakEnabled && profile.lunchStart && profile.lunchEnd && (
-                  <span className="text-[11px] text-amber-400/90 font-medium bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                    Almoço: {profile.lunchStart} às {profile.lunchEnd}
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                {timeSlots.map(slot => {
-                  const isSelected = selectedTime === slot.time;
-                  return (
-                    <button
-                      key={slot.time}
-                      type="button"
-                      disabled={!slot.available}
-                      title={slot.isLunch ? 'Pausa para almoço da barbearia' : !slot.available ? 'Horário já reservado' : 'Disponível'}
-                      onClick={() => setSelectedTime(slot.time)}
-                      className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border ${
-                        slot.isLunch
-                          ? 'bg-neutral-950/30 border-neutral-900/80 text-neutral-600 cursor-not-allowed opacity-60'
-                          : !slot.available
-                          ? 'bg-neutral-950/40 border-neutral-900 text-neutral-600 line-through cursor-not-allowed'
-                          : isSelected
-                          ? 'bg-amber-500 border-amber-400 text-neutral-950 shadow-md shadow-amber-500/20'
-                          : 'bg-neutral-950 border-neutral-800 text-neutral-200 hover:border-neutral-700 hover:bg-neutral-800'
-                      }`}
-                    >
-                      <span>{slot.time}</span>
-                      {slot.isLunch && (
-                        <span className="block text-[9px] font-normal text-neutral-500 tracking-tight">Almoço</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-white truncate">{barber.name}</h4>
+                      {isSelected && (
+                        <span className="w-5 h-5 rounded-full bg-amber-500 text-neutral-950 flex items-center justify-center flex-shrink-0">
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        </span>
                       )}
-                    </button>
-                  );
-                })}
-              </div>
+                    </div>
+                    <p className="text-xs text-amber-400 font-medium truncate mt-0.5">{barber.specialty}</p>
+                    <p className="text-[11px] text-neutral-400 truncate mt-1">{barber.bio}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Step 3: Date & Slots */}
+        <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+          <div className="pb-6 border-b border-neutral-800">
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">
+                3
+              </span>
+              <h3 className="text-lg font-bold text-white tracking-tight">Data e Horário</h3>
             </div>
+            <p className="text-xs text-neutral-400 mt-1 pl-8">
+              Selecione o dia e verifique os horários livres na cadeira do barbeiro
+            </p>
           </div>
 
-          {/* STEP 4: CUSTOMER DETAILS */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-            <div className="pb-4 border-b border-neutral-800">
-              <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">Etapa 4 de 4</span>
-              <h3 className="text-xl font-bold text-white mt-0.5">Seus Dados de Contato</h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                Utilizado para o envio da confirmação no WhatsApp e lembretes do horário.
-              </p>
+          <div className="pt-6 space-y-6">
+            {/* Date Picker Input */}
+            <div className="max-w-xs">
+              <label className="block text-xs font-semibold text-neutral-300 mb-2">
+                Selecione o Dia de Atendimento
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  min={new Date().toISOString().split('T')[0]}
+                  onChange={(e) => {
+                    setSelectedDate(e.target.value);
+                    setSelectedTime('');
+                  }}
+                  className="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs font-semibold focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+            {/* Time Slot Grid */}
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-2.5">
+                Horários Disponíveis em {formatDateBR(selectedDate)}
+                {selectedBarber && ` com ${selectedBarber.name}`}
+              </label>
+
+              {!selectedBarber ? (
+                <div className="p-6 text-center border border-dashed border-neutral-800 rounded-2xl text-neutral-500 text-xs">
+                  Por favor, selecione um profissional no passo 2 acima para carregar a grade de horários.
+                </div>
+              ) : availableSlots.length === 0 ? (
+                <div className="p-6 text-center border border-dashed border-neutral-800 rounded-2xl text-neutral-400 text-xs">
+                  Sem horários livres nesta data para o profissional selecionado. Tente escolher outro dia!
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2.5">
+                  {availableSlots.map(time => {
+                    const isSelected = selectedTime === time;
+                    return (
+                      <button
+                        type="button"
+                        key={time}
+                        onClick={() => setSelectedTime(time)}
+                        className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all ${
+                          isSelected
+                            ? 'bg-amber-500 text-neutral-950 shadow-md shadow-amber-500/20 scale-105'
+                            : 'bg-neutral-950 hover:bg-neutral-800 text-neutral-200 border border-neutral-800 hover:border-neutral-700'
+                        }`}
+                      >
+                        {time}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Step 4: Client Info & Payment */}
+        <section className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+          <div className="pb-6 border-b border-neutral-800">
+            <div className="flex items-center gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">
+                4
+              </span>
+              <h3 className="text-lg font-bold text-white tracking-tight">Seus Dados e Pagamento</h3>
+            </div>
+            <p className="text-xs text-neutral-400 mt-1 pl-8">
+              Enviaremos a confirmação e lembretes automáticos diretamente para o seu WhatsApp
+            </p>
+          </div>
+
+          <div className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* Inputs */}
+            <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-neutral-300 mb-1.5">
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
                   Seu Nome Completo *
                 </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-neutral-500 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    required
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    placeholder="Ex: João Silva"
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: João da Silva"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                  WhatsApp com DDD (para confirmação) *
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+                  WhatsApp com DDD *
                 </label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-neutral-500 absolute left-3 top-3" />
-                  <input
-                    type="tel"
-                    required
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="Ex: (11) 98765-4321"
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
+                <input
+                  type="tel"
+                  required
+                  placeholder="Ex: (11) 98765-4321"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                />
               </div>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                  Observações / Preferências de Estilo (opcional)
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+                  E-mail (opcional para envio de calendário)
+                </label>
+                <input
+                  type="email"
+                  placeholder="cliente@email.com"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-300 mb-1.5">
+                  Observações / Preferências (opcional)
                 </label>
                 <textarea
                   rows={2}
+                  placeholder="Ex: Não gosto de navalha muito rente, barba comprida..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Ex: Prefiro tesoura no topo, barba alinhada com toalha morna..."
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors resize-none"
+                  className="w-full px-4 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500 transition-colors resize-none"
                 />
               </div>
             </div>
 
-            {/* Summary Box & Submit */}
-            <div className="mt-8 pt-6 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            {/* Payment Method Selection & Summary */}
+            <div className="space-y-4">
               <div>
-                <div className="text-xs text-neutral-400">Resumo do Agendamento:</div>
-                <div className="text-sm font-bold text-white flex items-center gap-2 mt-0.5">
-                  <span>{selectedService?.name || 'Selecione um serviço'}</span>
-                  {selectedTime && (
-                    <span className="text-amber-400">
-                      • {formatDateBR(selectedDate)} às {selectedTime}
-                    </span>
-                  )}
+                <label className="block text-xs font-semibold text-neutral-300 mb-2">
+                  Forma de Pagamento Preferida
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('pix')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      paymentMethod === 'pix'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-white'
+                        : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <QrCode className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-bold">PIX Instantâneo</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-1">Chave na barbearia</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('card_credit')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      paymentMethod === 'card_credit'
+                        ? 'bg-amber-500/10 border-amber-500 text-white'
+                        : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold">Cartão de Crédito</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-1">Pagar no local</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('card_debit')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      paymentMethod === 'card_debit'
+                        ? 'bg-amber-500/10 border-amber-500 text-white'
+                        : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold">Cartão de Débito</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-1">Pagar no local</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('cash')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      paymentMethod === 'cash'
+                        ? 'bg-amber-500/10 border-amber-500 text-white'
+                        : 'bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Banknote className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold">Dinheiro em Espécie</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-1">Pagar no local</span>
+                  </button>
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting || !selectedService || !selectedTime || !customerName || !customerPhone}
-                className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black text-sm transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <span>Confirmar Agendamento</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
+              {/* PIX Quick Info */}
+              {paymentMethod === 'pix' && profile.pixKey && (
+                <div className="p-3.5 bg-neutral-950 border border-neutral-800 rounded-2xl flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-neutral-500">Chave PIX ({profile.pixKeyType})</span>
+                    <p className="text-xs font-mono font-bold text-emerald-400 mt-0.5 select-all">{profile.pixKey}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(profile.pixKey || '');
+                      alert('Chave PIX copiada!');
+                    }}
+                    className="text-xs font-semibold px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors"
+                  >
+                    Copiar
+                  </button>
+                </div>
+              )}
 
-      {/* VIEW 3: MEUS AGENDAMENTOS & CANCELAMENTO FÁCIL */}
-      {activeTab === 'my_bookings' && (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 shadow-xl">
-          <div className="max-w-xl mx-auto">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-bold text-white">Consultar & Cancelar Meus Horários</h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                Digite seu número de WhatsApp para localizar seus agendamentos e gerenciar cancelamentos com aviso prévio imediato.
+              {/* Order Summary Box */}
+              <div className="p-4 bg-neutral-950 border border-neutral-800 rounded-2xl space-y-2 text-xs">
+                <div className="flex justify-between text-neutral-400">
+                  <span>Serviço:</span>
+                  <span className="text-white font-semibold">{selectedService?.name || 'Não selecionado'}</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Barbeiro:</span>
+                  <span className="text-white font-semibold">{selectedBarber?.name || 'Não selecionado'}</span>
+                </div>
+                <div className="flex justify-between text-neutral-400">
+                  <span>Data e Hora:</span>
+                  <span className="text-white font-semibold">
+                    {selectedTime ? `${formatDateBR(selectedDate)} às ${selectedTime}` : 'Selecione acima'}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-neutral-800 flex justify-between items-baseline">
+                  <span className="font-bold text-white uppercase">Valor Total</span>
+                  <span className="text-lg font-extrabold text-amber-400">
+                    {selectedService ? formatCurrency(selectedService.price) : 'R$ 0,00'}
+                  </span>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+          {/* Submit Button */}
+          <div className="mt-8 pt-6 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-xs text-neutral-400">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>Sem pagamento antecipado obrigatório. Confirmação instantânea!</span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting || !selectedService || !selectedBarber || !selectedTime}
+              className="w-full sm:w-auto px-8 py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-neutral-950 font-extrabold text-sm rounded-2xl shadow-xl shadow-amber-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span>Confirmar Meu Horário</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+        </section>
+
+      </form>
+
+      {/* Booking Success Modal */}
+      {createdAppointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl p-6 sm:p-8 space-y-6 animate-in zoom-in-95 duration-200">
+            
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-white tracking-tight">
+                Horário Agendado com Sucesso!
+              </h3>
+              <p className="text-xs text-neutral-400">
+                Sua cadeira já está reservada na <strong className="text-white">{profile.name}</strong>.
               </p>
             </div>
 
-            <form onSubmit={handleSearchBookings} className="flex gap-2 mb-8">
-              <div className="relative flex-1">
-                <Phone className="w-4 h-4 text-neutral-500 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                  placeholder="Seu WhatsApp (ex: 11988887777)"
-                  value={searchPhone}
-                  onChange={(e) => setSearchPhone(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
-                />
+            {/* Ticket summary */}
+            <div className="p-4 bg-neutral-950 border border-neutral-800 rounded-2xl space-y-2 text-xs">
+              <div className="flex justify-between text-neutral-400">
+                <span>Cliente:</span>
+                <span className="font-semibold text-white">{createdAppointment.customerName}</span>
               </div>
+              <div className="flex justify-between text-neutral-400">
+                <span>Serviço:</span>
+                <span className="font-semibold text-white">{createdAppointment.serviceName}</span>
+              </div>
+              <div className="flex justify-between text-neutral-400">
+                <span>Profissional:</span>
+                <span className="font-semibold text-amber-400">{createdAppointment.barberName}</span>
+              </div>
+              <div className="flex justify-between text-neutral-400">
+                <span>Data:</span>
+                <span className="font-semibold text-white">{formatDateBR(createdAppointment.date)}</span>
+              </div>
+              <div className="flex justify-between text-neutral-400">
+                <span>Horário:</span>
+                <span className="font-semibold text-white">{createdAppointment.time}</span>
+              </div>
+              <div className="flex justify-between text-neutral-400 pt-2 border-t border-neutral-800">
+                <span>Valor:</span>
+                <span className="font-bold text-emerald-400 text-sm">
+                  {formatCurrency(createdAppointment.servicePrice)}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="space-y-2.5">
               <button
-                type="submit"
-                className="px-5 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs border border-neutral-700 transition-colors"
+                type="button"
+                onClick={() => handleSendWhatsAppNotification(createdAppointment)}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all"
               >
-                Buscar
+                <Smartphone className="w-4 h-4" />
+                <span>Enviar Confirmação pelo WhatsApp da Barbearia</span>
               </button>
-            </form>
 
-            {/* Results list */}
-            {searchedAppointments !== null && (
-              <div className="space-y-3">
-                {searchedAppointments.length === 0 ? (
-                  <div className="text-center py-8 text-neutral-500 text-sm">
-                    Nenhum agendamento encontrado com este número de telefone.
-                  </div>
-                ) : (
-                  searchedAppointments.map(apt => {
-                    const isCancelled = apt.status === 'cancelled';
-                    const isCompleted = apt.status === 'completed';
+              <div className="grid grid-cols-2 gap-2">
+                <a
+                  href={createGoogleCalendarUrl(createdAppointment, profile)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl border border-neutral-700 flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <CalendarIcon className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Google Agenda</span>
+                </a>
 
-                    return (
-                      <div 
-                        key={apt.id}
-                        className="bg-neutral-950 rounded-2xl p-4 border border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-sm">{apt.serviceName}</span>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              isCancelled 
-                                ? 'bg-rose-950/60 text-rose-400 border border-rose-800/40' 
-                                : isCompleted 
-                                ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                                : 'bg-amber-950/60 text-amber-400 border border-amber-800/40'
-                            }`}>
-                              {isCancelled ? 'Cancelado' : isCompleted ? 'Concluído' : 'Agendado'}
-                            </span>
-                          </div>
-                          <div className="text-xs text-neutral-400">
-                            Barbeiro: <strong className="text-neutral-200">{apt.barberName}</strong> • {formatDateBR(apt.date)} às {apt.time}
-                          </div>
-                          <div className="text-xs text-emerald-400 font-bold">
-                            {formatCurrency(apt.servicePrice)}
-                          </div>
-                          {apt.cancellationReason && (
-                            <div className="text-[11px] text-rose-400">
-                              Motivo cancelamento: {apt.cancellationReason}
-                            </div>
-                          )}
-                        </div>
-
-                        {!isCancelled && !isCompleted && (
-                          <div className="flex items-center gap-2 w-full sm:w-auto">
-                            <button
-                              type="button"
-                              onClick={() => setCancelModalAppointment(apt)}
-                              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-semibold text-xs border border-rose-800/60 transition-colors"
-                            >
-                              <XCircle className="w-3.5 h-3.5 text-rose-400" />
-                              <span>Cancelar Horário</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
+                <button
+                  type="button"
+                  onClick={() => downloadIcsFile(createdAppointment, profile)}
+                  className="py-2.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl border border-neutral-700 flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Apple / Outlook (.ics)</span>
+                </button>
               </div>
-            )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCreatedAppointment(null)}
+              className="w-full py-2.5 text-neutral-400 hover:text-white text-xs font-medium transition-colors"
+            >
+              Fechar
+            </button>
+
           </div>
         </div>
       )}
 
-      {/* CANCEL MODAL WITH IMMEDIATE NOTICE */}
-      {cancelModalAppointment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full shadow-2xl">
-            <div className="flex items-center gap-3 text-rose-400 mb-3">
-              <AlertCircle className="w-6 h-6 flex-shrink-0" />
-              <h3 className="text-lg font-bold text-white">Cancelar Agendamento?</h3>
-            </div>
+      {/* Lookup Existing Appointments Modal */}
+      {showLookupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             
-            <p className="text-xs text-neutral-400 leading-relaxed">
-              Você está prestes a cancelar o horário de <strong className="text-white">{cancelModalAppointment.serviceName}</strong> no dia <strong className="text-white">{formatDateBR(cancelModalAppointment.date)} às {cancelModalAppointment.time}</strong> com {cancelModalAppointment.barberName}.
-            </p>
-
-            <div className="mt-4">
-              <label className="block text-xs font-bold text-neutral-300 mb-1.5">
-                Motivo do cancelamento (opcional):
-              </label>
-              <textarea
-                rows={2}
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Ex: Tive um compromisso urgente de trabalho..."
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500 resize-none"
-              />
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-2">
+            <div className="flex items-center justify-between p-5 border-b border-neutral-800 bg-neutral-900/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Search className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Consultar Meus Agendamentos</h3>
+                  <p className="text-xs text-neutral-400">Digite seu WhatsApp para ver ou cancelar seus horários</p>
+                </div>
+              </div>
               <button
-                type="button"
-                onClick={() => setCancelModalAppointment(null)}
-                className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium text-xs transition-colors"
+                onClick={() => {
+                  setShowLookupModal(false);
+                  setLookupResults(null);
+                }}
+                className="p-2 text-neutral-400 hover:text-white rounded-xl hover:bg-neutral-800 transition-colors"
               >
-                Voltar
-              </button>
-
-              <button
-                type="button"
-                onClick={handleClientCancelConfirm}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors shadow-lg shadow-rose-600/20"
-              >
-                Confirmar Cancelamento
+                <XCircle className="w-5 h-5" />
               </button>
             </div>
+
+            <div className="p-6 overflow-y-auto space-y-4">
+              <form onSubmit={handleLookupSearch} className="flex gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="Seu WhatsApp (ex: 11988887777)"
+                  value={lookupPhone}
+                  onChange={(e) => setLookupPhone(e.target.value)}
+                  className="flex-1 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white text-xs focus:outline-none focus:border-amber-500 transition-colors"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl shadow-md transition-all"
+                >
+                  Buscar
+                </button>
+              </form>
+
+              {lookupResults && (
+                <div className="space-y-3 pt-2">
+                  <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
+                    {lookupResults.length} resultado(s) encontrado(s):
+                  </h4>
+
+                  {lookupResults.length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-6">
+                      Nenhum agendamento encontrado para este número.
+                    </p>
+                  ) : (
+                    lookupResults.map(apt => (
+                      <div 
+                        key={apt.id}
+                        className="p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-xs font-bold text-white">{apt.serviceName}</span>
+                            <p className="text-[11px] text-neutral-400">com {apt.barberName}</p>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            apt.status === 'confirmed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                            apt.status === 'scheduled' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
+                            apt.status === 'completed' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/30' :
+                            'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                          }`}>
+                            {apt.status === 'confirmed' ? 'Confirmado' :
+                             apt.status === 'scheduled' ? 'Agendado' :
+                             apt.status === 'completed' ? 'Finalizado' : 'Cancelado'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-neutral-400">
+                          <span>{formatDateBR(apt.date)} às {apt.time}</span>
+                          <span className="font-bold text-white">{formatCurrency(apt.servicePrice)}</span>
+                        </div>
+
+                        {apt.status !== 'cancelled' && apt.status !== 'completed' && (
+                          <div className="pt-2 border-t border-neutral-900 flex justify-end">
+                            {cancellingId === apt.id ? (
+                              <div className="w-full space-y-2 pt-1">
+                                <input
+                                  type="text"
+                                  placeholder="Motivo do cancelamento (opcional)"
+                                  value={cancelReasonInput}
+                                  onChange={(e) => setCancelReasonInput(e.target.value)}
+                                  className="w-full px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded-lg text-white text-xs"
+                                />
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setCancellingId(null)}
+                                    className="px-2.5 py-1 text-xs text-neutral-400 hover:text-white"
+                                  >
+                                    Voltar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConfirmCancellation(apt)}
+                                    className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg shadow"
+                                  >
+                                    Confirmar Cancelamento
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setCancellingId(apt.id)}
+                                className="text-xs font-semibold text-rose-400 hover:text-rose-300"
+                              >
+                                Cancelar Horário
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}
