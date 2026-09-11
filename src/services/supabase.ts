@@ -12,9 +12,12 @@ const STORAGE_KEYS = {
   NOTIFICATIONS: 'barberpro_notifications'
 };
 
+const DEFAULT_URL = 'https://mchwtlupmwpkluhclgya.supabase.co';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jaHd0bHVwbXdwa2x1aGNsZ3lhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODM2Mzg4NiwiZXhwIjoyMTAzOTM5ODg2fQ.YlesVh2ByD9JbSxNTOQsSKwa-IrqxqPJv2EAy8of1_E';
+
 export const getSupabaseConfig = (): SupabaseConfig => {
-  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || DEFAULT_URL;
+  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || DEFAULT_KEY;
   
   const savedUrl = localStorage.getItem(STORAGE_KEYS.SUPABASE_URL) || envUrl;
   const savedKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_KEY) || envKey;
@@ -70,8 +73,8 @@ export const syncAppointmentsWithSupabase = async (
       service_id: a.serviceId,
       service_name: a.serviceName,
       service_price: a.servicePrice,
-      appointment_date: a.date,
-      appointment_time: a.time,
+      date: a.date,
+      time: a.time,
       status: a.status,
       payment_status: a.paymentStatus,
       payment_method: a.paymentMethod,
@@ -93,18 +96,18 @@ export const testSupabaseConnection = async (url: string, key: string): Promise<
     }
     const client = createClient(url, key);
     // Simple ping to check if client can reach Supabase
-    const { error } = await client.from('barbershop_profile').select('id').limit(1);
+    const { error } = await client.from('barbershops').select('id').limit(1);
     
-    // Even if table does not exist yet (code 42P01 in Postgres), it confirms network auth reached Supabase!
+    // If auth error
     if (error && error.code !== '42P01' && error.message?.includes('JWT')) {
-      return { success: false, message: `Erro de autenticação na chave Anon: ${error.message}` };
+      return { success: false, message: `Erro de autenticação na chave: ${error.message}` };
     }
 
     return { 
       success: true, 
       message: error?.code === '42P01' 
-        ? 'Conectado ao Supabase! Lembre-se de rodar o script SQL para criar as tabelas.' 
-        : 'Conexão com Supabase verificada com sucesso!' 
+        ? 'Conectado ao Supabase! As tabelas ainda não existem. Lembre-se de rodar o script SQL no SQL Editor.' 
+        : 'Conexão com Supabase verificada e ativa com sucesso!' 
     };
   } catch (err: any) {
     return { success: false, message: err.message || 'Falha ao conectar com o Supabase' };

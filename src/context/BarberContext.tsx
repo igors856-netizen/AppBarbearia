@@ -20,7 +20,7 @@ import {
   DEFAULT_RECEIPTS,
   DEFAULT_ADMINS
 } from '../data/defaultData';
-import { getSupabaseClient, syncAppointmentsWithSupabase } from '../services/supabase';
+import { getSupabaseClient, syncAppointmentsWithSupabase, getSupabaseConfig, saveSupabaseConfig } from '../services/supabase';
 
 interface BarberContextType {
   profile: BarberShopProfile;
@@ -159,13 +159,14 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     loadDataFromStorage('barberpro_notifications_v3', [])
   );
 
-  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => 
-    loadDataFromStorage('barberpro_supabase_config_v3', {
-      url: '',
-      anonKey: '',
-      connected: false
-    })
-  );
+  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
+    const config = getSupabaseConfig();
+    const loaded = loadDataFromStorage<SupabaseConfig | null>('barberpro_supabase_config_v3', null);
+    if (loaded && loaded.url && loaded.anonKey) {
+      return { ...loaded, connected: true };
+    }
+    return { ...config, connected: Boolean(config.url && config.anonKey) };
+  });
 
   const [activeView, setActiveView] = useState<ActiveView>('client');
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null);
@@ -410,6 +411,33 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setRawAppointments(prev => [newAppointment, ...prev]);
 
+    // Background sync to Supabase if connected
+    if (supabaseConfig.url && supabaseConfig.anonKey) {
+      const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+      if (client) {
+        client.from('appointments').upsert([{
+          id: newAppointment.id,
+          shop_id: newAppointment.shopId,
+          customer_name: newAppointment.customerName,
+          customer_phone: newAppointment.customerPhone,
+          customer_email: newAppointment.customerEmail,
+          barber_id: newAppointment.barberId,
+          barber_name: newAppointment.barberName,
+          service_id: newAppointment.serviceId,
+          service_name: newAppointment.serviceName,
+          service_price: newAppointment.servicePrice,
+          date: newAppointment.date,
+          time: newAppointment.time,
+          status: newAppointment.status,
+          payment_status: newAppointment.paymentStatus,
+          payment_method: newAppointment.paymentMethod,
+          notes: newAppointment.notes
+        }]).then(({ error }) => {
+          if (error) console.error('Supabase auto-sync add appointment:', error);
+        });
+      }
+    }
+
     addNotification(
       'Novo Agendamento Realizado!',
       `${newAppointment.customerName} agendou ${newAppointment.serviceName} com ${newAppointment.barberName} para ${newAppointment.date} às ${newAppointment.time}.`,
@@ -418,11 +446,18 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
 
     return newAppointment;
-  }, [activeShopId, addNotification]);
+  }, [activeShopId, supabaseConfig, addNotification]);
 
   const confirmAppointment = useCallback((id: string) => {
     setRawAppointments(prev => prev.map(a => {
       if (a.id === id) {
+        if (supabaseConfig.url && supabaseConfig.anonKey) {
+          const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+          if (client) {
+            client.from('appointments').update({ status: 'confirmed' }).eq('id', id).then();
+          }
+        }
+
         addNotification(
           'Agendamento Confirmado',
           `O atendimento de ${a.customerName} foi confirmado para ${a.date} às ${a.time}.`,
@@ -433,7 +468,7 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       return a;
     }));
-  }, [addNotification]);
+  }, [supabaseConfig, addNotification]);
 
   const completeAppointment = useCallback((id: string, paymentMethod: PaymentMethod = 'pix') => {
     let generatedReceipt: Receipt | null = null;
@@ -462,6 +497,36 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setReceipts(r => [receipt, ...r]);
         setSelectedReceipt(receipt);
 
+        if (supabaseConfig.url && supabaseConfig.anonKey) {
+          const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+          if (client) {
+            client.from('appointments').update({ 
+              status: 'completed',
+              payment_status: 'paid',
+              payment_method: paymentMethod,
+              receipt_id: receipt.id
+            }).eq('id', id).then();
+
+            client.from('receipts').upsert([{
+              id: receipt.id,
+              shop_id: a.shopId || activeShopId,
+              receipt_number: receipt.receiptNumber,
+              appointment_id: a.id,
+              issued_at: receipt.issuedAt,
+              customer_name: receipt.customerName,
+              customer_phone: receipt.customerPhone,
+              barber_name: receipt.barberName,
+              service_name: receipt.serviceName,
+              amount: receipt.amount,
+              payment_method: receipt.paymentMethod,
+              shop_name: receipt.shopName,
+              shop_address: receipt.shopAddress,
+              shop_phone: receipt.shopPhone,
+              auth_code: receipt.authCode
+            }]).then();
+          }
+        }
+
         addNotification(
           'Atendimento Finalizado & Comprovante Gerado',
           `Serviço de ${a.customerName} concluído com sucesso. Faturamento de R$ ${a.servicePrice.toFixed(2)} registrado.`,
@@ -481,11 +546,26 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }));
 
     return generatedReceipt!;
-  }, [profile, addNotification]);
+  }, [profile, supabaseConfig, activeShopId, addNotification]);
 
   const cancelAppointment = useCallback((id: string, reason?: string, cancelledBy: 'client' | 'barber' = 'barber') => {
     setRawAppointments(prev => prev.map(a => {
       if (a.id === id) {
+        const cancelledAt = new Date().toISOString();
+        const cancellationReason = reason || 'Cancelado pelo usuário';
+
+        if (supabaseConfig.url && supabaseConfig.anonKey) {
+          const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+          if (client) {
+            client.from('appointments').update({ 
+              status: 'cancelled',
+              cancelled_at: cancelledAt,
+              cancellation_reason: cancellationReason,
+              cancelled_by: cancelledBy
+            }).eq('id', id).then();
+          }
+        }
+
         addNotification(
           'Agendamento Cancelado',
           `O agendamento de ${a.customerName} (${a.date} às ${a.time}) foi cancelado. Motivo: ${reason || 'Não informado'}.`,
@@ -495,19 +575,25 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return {
           ...a,
           status: 'cancelled',
-          cancelledAt: new Date().toISOString(),
-          cancellationReason: reason || 'Cancelado pelo usuário',
+          cancelledAt,
+          cancellationReason,
           cancelledBy
         };
       }
       return a;
     }));
-  }, [addNotification]);
+  }, [supabaseConfig, addNotification]);
 
   const deleteAppointment = useCallback((id: string) => {
     setRawAppointments(prev => prev.filter(a => a.id !== id));
+    if (supabaseConfig.url && supabaseConfig.anonKey) {
+      const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+      if (client) {
+        client.from('appointments').delete().eq('id', id).then();
+      }
+    }
     addNotification('Registro Excluído', 'O agendamento foi removido permanentemente do histórico.', 'sync');
-  }, [addNotification]);
+  }, [supabaseConfig, addNotification]);
 
   // Calcula horários disponíveis para o profissional na data selecionada
   const getAvailableSlots = useCallback((barberId: string, dateStr: string): string[] => {
@@ -631,7 +717,13 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [addNotification]);
 
   const updateSupabaseConfig = useCallback((cfg: Partial<SupabaseConfig>) => {
-    setSupabaseConfig(prev => ({ ...prev, ...cfg }));
+    setSupabaseConfig(prev => {
+      const updated = { ...prev, ...cfg };
+      if (cfg.url && cfg.anonKey) {
+        saveSupabaseConfig(cfg.url, cfg.anonKey);
+      }
+      return updated;
+    });
   }, []);
 
   const syncWithSupabase = useCallback(async () => {
@@ -641,9 +733,21 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+      if (!client) {
+        return { success: false, message: 'Não foi possível inicializar o cliente Supabase.' };
+      }
+
       const { data, error } = await client.from('appointments').select('*').order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42P01') {
+          return { 
+            success: false, 
+            message: 'Tabelas não encontradas no Supabase. Por favor, execute o script SQL no SQL Editor do seu projeto Supabase.' 
+          };
+        }
+        throw error;
+      }
 
       if (data && data.length > 0) {
         const mappedApts: Appointment[] = data.map((row: any) => ({
@@ -657,8 +761,8 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           serviceId: row.service_id,
           serviceName: row.service_name,
           servicePrice: Number(row.service_price),
-          date: row.appointment_date || row.date,
-          time: row.appointment_time || row.time,
+          date: row.date || row.appointment_date,
+          time: row.time || row.appointment_time,
           status: row.status,
           paymentStatus: row.payment_status,
           paymentMethod: row.payment_method,
@@ -670,6 +774,9 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           cancelledBy: row.cancelled_by
         }));
         setRawAppointments(mappedApts);
+      } else if (rawAppointments.length > 0) {
+        // Se a tabela no Supabase estiver vazia, sobe os agendamentos atuais
+        await syncAppointmentsWithSupabase(rawAppointments, supabaseConfig);
       }
 
       setSupabaseConfig(prev => ({
@@ -678,13 +785,20 @@ export const BarberProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         lastSync: new Date().toISOString()
       }));
 
-      addNotification('Sincronização Supabase Concluída', 'Banco de dados em nuvem sincronizado em tempo real.', 'sync');
-      return { success: true, message: 'Sincronizado com sucesso com o Supabase!' };
+      addNotification('Sincronização Supabase Concluída', 'Banco de dados em nuvem conectado e sincronizado com sucesso.', 'sync');
+      return { success: true, message: 'Conectado e sincronizado com sucesso ao Supabase!' };
     } catch (err: any) {
       setSupabaseConfig(prev => ({ ...prev, connected: false }));
       return { success: false, message: err.message || 'Erro ao sincronizar com Supabase' };
     }
-  }, [supabaseConfig, activeShopId, addNotification]);
+  }, [supabaseConfig, activeShopId, rawAppointments, addNotification]);
+
+  // Sincronização automática inicial com o Supabase ao carregar a aplicação
+  useEffect(() => {
+    if (supabaseConfig.url && supabaseConfig.anonKey) {
+      syncWithSupabase().catch(() => {});
+    }
+  }, []);
 
   // Admin Auth Methods
   const loginAdmin = useCallback((username: string, password: string) => {
